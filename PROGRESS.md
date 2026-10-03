@@ -1,43 +1,47 @@
 # Project Progress
 
 ## Status Overview
-- Current Stage Completed: **Stage 4 (Single-File Streamlit Decision-Support Dashboard)**
-- Next Stage: **Stage 5 (Unit Tests, Pinned Dependencies, and Honest README)**
+- Current Stage Completed: **Stage 5 (Verification Tests, Pinned Dependencies, and Project Documentation)**
+- Overall Status: **COMPLETE (Stages 1 through 5 successfully executed)**
 
-## Stage 4 Summary
-- **Built**: `app.py`, a single-file Streamlit decision-support application with 4 functional pages:
-  1. *Regional Overview*: Interactive map (`st.map`), escalation warning banners for active High shortages, and summary KPIs.
-  2. *Predict & What-If*: Multi-parameter simulation (hazard type, severity, intensity, epicentre, month, local inventory override), real-time 3.1 impact prediction, 3.2 7-day demand with 90% conformal prediction intervals, 3.3 calibrated shortage risk with conservative alert thresholds, and 3.4 dynamic clinical SHAP explanations.
-  3. *Multi-Objective Allocation*: Interactive weight sliders, OR-Tools MIP execution, Pareto frontier visualization, and human-in-the-loop governance (Approve/Reject actions logged to `reports/audit_log.csv` with mandatory review blocks when confidence < 0.60).
-  4. *Model Governance & Provenance*: Comprehensive metrics reporting, real EM-DAT benchmark comparison, calibration curves, SHAP summary plot, disaggregated bias audit, and prominent SEMI-SYNTHETIC warnings.
-- **How to Run**:
-  ```bash
-  .venv/bin/streamlit run app.py
-  ```
-- **Key Numbers**:
-  - Interactive response time: < 50 ms for full prediction pipeline + optimization run.
-  - Conformal bounds rendered at nominal 90% confidence ($[\\hat{y} - 394, \\hat{y} + 394]$ units).
-  - Human approval records captured with timestamps, reviewer credentials, and model versions in `reports/audit_log.csv`.
-- **Key Decisions**:
-  - Streamlit's built-in `st.map` used to avoid external dependencies (e.g. Folium).
-  - Human review checkbox strictly enforces confirmation before approving low-confidence recommendations.
-- **Open Problems / Notes**:
-  - All dashboard components successfully verified. Ready for test suite and final documentation.
+## Stage Summaries
+### Stage 1: Data Cleaning & Climatology
+- **Built**: `src/clean.py`, producing `data/processed/clean/` and `reports/data_quality.md`.
+- **Outputs**: Cleaned EM-DAT disaster catalogue (810 events, 512 non-null casualties), 120 regional monthly climatology profiles, 400 validated synthetic disaster scenarios.
 
-## How to Resume
+### Stage 2: Models, Uncertainty & Explainability
+- **Built**: `src/train.py`, `models/pipeline_bundle.joblib`, `reports/metrics.json`, `reports/calibration.png`, `reports/shap_summary.png`, and `reports/bias_table.csv`.
+- **Results**:
+  - Module 3.1 Impact: Real EM-DAT Benchmark ($R^2=0.129$, MAE=2.896) vs Synthetic Impact XGBoost ($R^2 \approx 0.88$).
+  - Module 3.2 Demand: XGBoost $R^2=0.907$, Conformal 90% margin $\pm 394.2$ units, empirical test coverage 86.1%.
+  - Module 3.3 Shortage Classifier: Logistic Baseline (Acc: 80.3%) vs Calibrated Random Forest (Acc: 90.1%, ECE: 0.0177). Conservative decision rule boosts High-risk recall to **92.4%**.
+  - Module 3.4 SHAP: Global TreeExplainer and dynamic plain-English administrative explanation sentences.
+
+### Stage 3: Multi-Objective Resource Allocation
+- **Built**: `src/optimise.py`, `reports/sample_allocation_plan.csv`, `reports/pareto_sweep.png`, and `reports/allocation_summary.json`.
+- **Results**: Google OR-Tools SCIP solver executed in 33.6 ms, transferring 584,608 units across 24 routes, reducing unmet demand by 30.4% and improving min regional coverage from 16.2% to 22.0% under a 60% source safety reserve.
+
+### Stage 4: Decision-Support Dashboard
+- **Built**: `app.py` (single-file Streamlit application) with Regional Overview Map, What-If Simulation, Multi-Objective Allocation with Pareto figures, and Model Governance reporting.
+- **Safety**: Human-in-the-loop approval workflow logging to `reports/audit_log.csv` with mandatory review blocks when model confidence < 0.60.
+
+### Stage 5: Unit Tests & Honest Documentation
+- **Built**: `tests/test_core.py` (4/4 tests passing in 3.5s), `pytest.ini`, `requirements.txt` (pinned), `.gitignore`, and `README.md` (architecture diagram, real benchmark results, honest ethical/methodological disclosures).
+
+## How to Resume / Run Entire System
 ```bash
-# Clean data
+# 1. Clean data and build climatology
 .venv/bin/python -m src.clean
 
-# Train models
+# 2. Train ML pipeline and generate reports
 .venv/bin/python -m src.train
 
-# Run optimizer
+# 3. Run OR-Tools allocation optimizer and Pareto sweep
 .venv/bin/python -m src.optimise
 
-# Launch dashboard
-.venv/bin/streamlit run app.py
-
-# Run tests
+# 4. Run test suite
 .venv/bin/pytest -q
+
+# 5. Launch interactive Streamlit decision dashboard
+.venv/bin/streamlit run app.py
 ```
