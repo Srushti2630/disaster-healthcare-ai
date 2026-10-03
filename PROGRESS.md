@@ -1,8 +1,8 @@
 # Project Progress
 
 ## Status Overview
-- Current Stage Completed: **Phase 1 (Real Data Layer: Boundaries, WorldPop Population, Hospital Directory, ICU Bed Anchors, EM-DAT Events, Event Weather)**
-- Overall Status: **IN PROGRESS (Phase 1 Complete, Phase 2 Real Impact Model Next)**
+- Current Stage Completed: **Phase 2 (Real EM-DAT Impact Model, Conformalized Quantile Regression CQR, SHAP Explainer, Historical Back-test)**
+- Overall Status: **IN PROGRESS (Phase 2 Complete, Phase 3 Transparent Demand & Monte-Carlo Engine Next)**
 
 ## Phase Summaries
 ### Phase 0: Audit & Hygiene
@@ -19,6 +19,13 @@
 - **EM-DAT Disaster Events (REAL)**: Processed 810 real EM-DAT India disaster events (`data/processed/emdat_events.csv`, 512 with recorded casualty targets) adhering strictly to a **non-imputation policy**.
 - **Event-Date Weather (ESTIMATED)**: Extracted 1/3/7-day rolling precipitation, max wind, and temperature extremes for event dates (`data/processed/weather_events.csv`).
 - **Governance & Audit**: Created machine-readable `data/provenance.yaml` and `reports/data_quality.md`.
+
+### Phase 2: Real Impact Model & CQR (`src/models/`)
+- **Time-Split Evaluation**: Trained on 512 real EM-DAT events using strict time-based splits (Train <= 2012, Val 2013-2018, Test 2019+). Ridge ($R^2 = 0.262$, MAE = 2.900, Spearman $\rho = 0.504$) and XGBoost ($R^2 = 0.155$, MAE = 3.136, Spearman $\rho = 0.442$) beat Median Baseline (MAE = 3.572).
+- **Conformalized Quantile Regression (CQR)**: Replaced split conformal with CQR; achieved **91.0% empirical test coverage** for nominal 90% target.
+- **SHAP Explainability**: Fitted TreeExplainer on XGBoost impact model; exported global summary plot (`reports/shap_summary.png`) and local feature attribution.
+- **Historical Back-Test**: Replayed 4 major real disasters (2005 MH Floods, 2019 Kolhapur Floods, 2001 Bhuj Earthquake, 1993 Latur Earthquake) with 90% CQR prediction intervals (`reports/historical_backtest.csv`).
+
 
 
 ### Stage 2: Models, Uncertainty & Explainability

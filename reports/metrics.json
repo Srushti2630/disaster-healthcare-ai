@@ -1,61 +1,86 @@
 {
-  "model_version": "v1.0.0",
-  "real_emdat_benchmark": {
-    "dataset": "EM-DAT India (Real)",
-    "samples_used": 512,
-    "mean_baseline_mae": 3.1092531315855982,
-    "mean_baseline_r2": -0.003904115309032008,
-    "rf_mae": 2.896374144555494,
-    "rf_r2": 0.12854539285757138,
-    "note": "Trained on log1p(affected). Targets were never imputed; only rows with recorded affected count were evaluated."
-  },
-  "module_3_1_impact": {
-    "affected_pop": {
-      "baseline_mean_mae": 1.7562320991333882,
-      "baseline_mean_r2": -0.02500800489519328,
-      "random_forest_mae": 0.2570148857973269,
-      "random_forest_r2": 0.9747990885049423,
-      "xgboost_mae": 0.1148561068001896,
-      "xgboost_r2": 0.9919196990540545
+  "dataset": "EM-DAT India Historical Disasters (REAL)",
+  "sample_size": 512,
+  "split_policy": "Time-based (Train <= 2012, Val 2013-2018, Test 2019+)",
+  "models_benchmarked": {
+    "Median_Baseline": {
+      "test_mae_log": 3.5717,
+      "test_rmse_log": 4.2102,
+      "test_r2": -0.0952,
+      "test_spearman_rho": 0.0,
+      "accuracy_within_half_order_of_magnitude_pct": 19.2
     },
-    "injured": {
-      "baseline_mean_mae": 1.955961500492588,
-      "baseline_mean_r2": -0.03957557871417028,
-      "random_forest_mae": 0.22773124500998917,
-      "random_forest_r2": 0.9811898140677502,
-      "xgboost_mae": 0.13050783569707355,
-      "xgboost_r2": 0.9928938158322812
+    "Ridge": {
+      "test_mae_log": 2.8998,
+      "test_rmse_log": 3.4557,
+      "test_r2": 0.2621,
+      "test_spearman_rho": 0.5039,
+      "accuracy_within_half_order_of_magnitude_pct": 24.4
     },
-    "ill": {
-      "baseline_mean_mae": 1.7145825496612588,
-      "baseline_mean_r2": -0.018734934042641482,
-      "random_forest_mae": 0.21506896198355885,
-      "random_forest_r2": 0.9816568361088889,
-      "xgboost_mae": 0.11016521602466343,
-      "xgboost_r2": 0.9930888525412778
+    "Random_Forest": {
+      "test_mae_log": 3.1952,
+      "test_rmse_log": 3.7719,
+      "test_r2": 0.1209,
+      "test_spearman_rho": 0.3609,
+      "accuracy_within_half_order_of_magnitude_pct": 15.4
+    },
+    "XGBoost": {
+      "test_mae_log": 3.1361,
+      "test_rmse_log": 3.6987,
+      "test_r2": 0.1547,
+      "test_spearman_rho": 0.4417,
+      "accuracy_within_half_order_of_magnitude_pct": 15.4
     }
   },
-  "module_3_2_demand": {
-    "baseline_mean_mae": 16524.95140790625,
-    "baseline_mean_r2": 0.02805138065333801,
-    "xgb_mae": 2203.648575684482,
-    "xgb_r2": 0.9066597815738892,
-    "conformal_target_coverage": 0.9,
-    "conformal_margin_units": 2723.9965234375013,
-    "empirical_test_coverage": 0.8605
+  "conformal_quantile_regression": {
+    "nominal_confidence": 0.9,
+    "empirical_test_coverage_pct": 91.0,
+    "conformal_margin_log_units": 1.3308
   },
-  "module_3_3_shortage_classifier": {
-    "baseline_logistic_acc": 0.80325,
-    "baseline_logistic_macro_f1": 0.7444129467477536,
-    "calibrated_rf_standard_acc": 0.90075,
-    "calibrated_rf_standard_macro_f1": 0.8635407146745872,
-    "high_risk_standard_recall": 0.8869123252858958,
-    "high_risk_standard_precision": 0.8869123252858958,
-    "conservative_threshold_high": 0.37,
-    "conservative_rf_acc": 0.901,
-    "conservative_rf_macro_f1": 0.8620383997923294,
-    "high_risk_conservative_recall": 0.9237611181702668,
-    "high_risk_conservative_precision": 0.8603550295857988,
-    "expected_calibration_error": 0.017729785446670303
-  }
+  "historical_backtest": [
+    {
+      "event_name": "2005 Maharashtra Floods",
+      "year": 2005,
+      "disaster_type": "Flood",
+      "actual_affected": 1908000,
+      "predicted_affected_mid": 62701,
+      "predicted_affected_p10": 9,
+      "predicted_affected_p90": 24809094,
+      "interval_covers_actual": true,
+      "provenance": "REAL_BACKTEST"
+    },
+    {
+      "event_name": "2019 Kolhapur-Sangli Floods",
+      "year": 2019,
+      "disaster_type": "Flood",
+      "actual_affected": 3000000,
+      "predicted_affected_mid": 81232,
+      "predicted_affected_p10": 9,
+      "predicted_affected_p90": 20931231,
+      "interval_covers_actual": true,
+      "provenance": "REAL_BACKTEST"
+    },
+    {
+      "event_name": "2001 Bhuj Earthquake",
+      "year": 2001,
+      "disaster_type": "Earthquake",
+      "actual_affected": 6321812,
+      "predicted_affected_mid": 201090,
+      "predicted_affected_p10": 8,
+      "predicted_affected_p90": 23681139,
+      "interval_covers_actual": true,
+      "provenance": "REAL_BACKTEST"
+    },
+    {
+      "event_name": "1993 Latur Earthquake",
+      "year": 1993,
+      "disaster_type": "Earthquake",
+      "actual_affected": 525,
+      "predicted_affected_mid": 811,
+      "predicted_affected_p10": 72,
+      "predicted_affected_p90": 10182075,
+      "interval_covers_actual": true,
+      "provenance": "REAL_BACKTEST"
+    }
+  ]
 }

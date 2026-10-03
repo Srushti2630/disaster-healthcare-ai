@@ -1,0 +1,5 @@
+event_name,year,disaster_type,actual_affected,predicted_affected_mid,predicted_affected_p10,predicted_affected_p90,interval_covers_actual,provenance
+2005 Maharashtra Floods,2005,Flood,1908000,62701,9,24809094,True,REAL_BACKTEST
+2019 Kolhapur-Sangli Floods,2019,Flood,3000000,81232,9,20931231,True,REAL_BACKTEST
+2001 Bhuj Earthquake,2001,Earthquake,6321812,201090,8,23681139,True,REAL_BACKTEST
+1993 Latur Earthquake,1993,Earthquake,525,811,72,10182075,True,REAL_BACKTEST

@@ -4,7 +4,7 @@
   "severity": 5,
   "balanced_summary": {
     "solve_status": "OPTIMAL",
-    "solve_time_ms": 33.6,
+    "solve_time_ms": 38.77,
     "total_transferred_units": 584608,
     "total_transport_cost": 13740991.56,
     "unmet_demand_before": 1920883.3,
