@@ -1,10 +1,16 @@
 # Project Progress
 
 ## Status Overview
-- Current Stage Completed: **Stage 5 (Verification Tests, Pinned Dependencies, and Project Documentation)**
-- Overall Status: **COMPLETE (Stages 1 through 5 successfully executed)**
+- Current Stage Completed: **Phase 0 (Audit & Hygiene, Config, Makefile, Dependency Trimming, Data Governance Setup)**
+- Overall Status: **IN PROGRESS (Phase 0 Complete, Phase 1 Real Data Layer Next)**
 
-## Stage Summaries
+## Phase Summaries
+### Phase 0: Audit & Hygiene
+- **Baseline Preserved**: Archived old synthetic metrics to `reports/baseline_synthetic_metrics.json`.
+- **Dependencies Cleaned**: Trimmed `requirements.txt` to verified direct dependencies.
+- **Config & Automation**: Created state-agnostic `config.yaml`, `run_all.py`, and `Makefile`.
+- **Repo Hygiene & Data Docs**: Updated `.gitignore` to track data structures while ignoring large raw binaries (>50 MB). Created `data/README.md` and `docs/DATA_NEEDED.md`.
+
 ### Stage 1: Data Cleaning & Climatology
 - **Built**: `src/clean.py`, producing `data/processed/clean/` and `reports/data_quality.md`.
 - **Outputs**: Cleaned EM-DAT disaster catalogue (810 events, 512 non-null casualties), 120 regional monthly climatology profiles, 400 validated synthetic disaster scenarios.

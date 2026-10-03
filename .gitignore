@@ -1,7 +1,24 @@
+# Environment & Caches
 .venv/
+venv/
+env/
 __pycache__/
 *.pyc
-.DS_Store
 .pytest_cache/
-data/
-models/
+.DS_Store
+
+# Large raw datasets (>50 MB or raw archives)
+data/raw/*.zip
+data/raw/*.tif
+data/raw/*.xlsx
+data/interim/*
+!data/interim/.gitkeep
+!data/processed/.gitkeep
+
+# Machine learning model artifacts (>50 MB)
+models/*.joblib
+!models/.gitkeep
+
+# Output logs and temporary files
+*.log
+scratch/
