@@ -1,0 +1,15 @@
+{
+  "missing_weather": {
+    "status": "PASSED",
+    "predicted_log_affected": 12.2459
+  },
+  "unseen_hazard": {
+    "status": "PASSED",
+    "predicted_log_affected": 9.607
+  },
+  "zero_stock_solver": {
+    "status": "PASSED",
+    "solve_status": "OPTIMAL",
+    "unmet_after": 1000.0
+  }
+}

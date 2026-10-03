@@ -1,8 +1,8 @@
 # Project Progress
 
 ## Status Overview
-- Current Stage Completed: **Phase 5 (Decision-Support Dashboard Upgrade, Cryptographic Audit Log, PDF/Excel Export)**
-- Overall Status: **IN PROGRESS (Phase 5 Complete, Phase 6 Fairness & Sensitivity Next)**
+- Current Stage Completed: **Phase 6 (Fairness & Bias Audit, Tornado Sensitivity Analysis, Operational Stress Testing)**
+- Overall Status: **IN PROGRESS (Phase 6 Complete, Phase 7 Comprehensive Test Suite & Documentation Next)**
 
 ## Phase Summaries
 ### Phase 0: Audit & Hygiene
@@ -42,6 +42,12 @@
 - **Interactive Multi-Page Streamlit App**: Built 35-district Plotly risk map, historical disaster event replay, interactive what-if simulator, OR-Tools allocation plan viewer, and Pareto curve explorer.
 - **Cryptographic Audit Log**: Implemented SHA-256 hash chaining (`src/reporting/audit.py`) for human-in-the-loop approval/rejection logging with reviewer roles and reason codes.
 - **One-Click Situation Report Export**: Built automated PDF (`src/reporting/export.py`) and Excel executive situation report generators.
+
+### Phase 6: Fairness Audit, Sensitivity & Stress Testing (`src/audit.py`)
+- **Bias Audit**: Audited prediction interval coverage across hazard types and population tiers (`reports/bias_table.csv`).
+- **Tornado Sensitivity Chart**: Computed Tornado chart (`reports/sensitivity_tornado.png`) measuring impact of ASSUMED epidemiological consumption rates on shortage risk.
+- **Operational Stress Tests**: Verified 3 stress scenarios (missing weather features, unseen hazard types, zero-stock districts) passing with 100% stability (`reports/stress_test_results.json`).
+
 
 
 
