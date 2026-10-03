@@ -1,8 +1,8 @@
 # Project Progress
 
 ## Status Overview
-- Current Stage Completed: **Phase 2 (Real EM-DAT Impact Model, Conformalized Quantile Regression CQR, SHAP Explainer, Historical Back-test)**
-- Overall Status: **IN PROGRESS (Phase 2 Complete, Phase 3 Transparent Demand & Monte-Carlo Engine Next)**
+- Current Stage Completed: **Phase 3 (Transparent Demand Engine, 2,000 Draw Monte-Carlo Simulation, ML Surrogate, Legacy Generator Archive)**
+- Overall Status: **IN PROGRESS (Phase 3 Complete, Phase 4 Optimiser Upgrade Next)**
 
 ## Phase Summaries
 ### Phase 0: Audit & Hygiene
@@ -25,6 +25,13 @@
 - **Conformalized Quantile Regression (CQR)**: Replaced split conformal with CQR; achieved **91.0% empirical test coverage** for nominal 90% target.
 - **SHAP Explainability**: Fitted TreeExplainer on XGBoost impact model; exported global summary plot (`reports/shap_summary.png`) and local feature attribution.
 - **Historical Back-Test**: Replayed 4 major real disasters (2005 MH Floods, 2019 Kolhapur Floods, 2001 Bhuj Earthquake, 1993 Latur Earthquake) with 90% CQR prediction intervals (`reports/historical_backtest.csv`).
+
+### Phase 3: Transparent Demand & Shortage Engine (`src/engine/`)
+- **Epidemiological Demand Engine**: Implemented WHO IEHK 2017 & Sphere Handbook consumption standards (`config/demand_params.yaml`, tagged `ASSUMED`).
+- **Monte-Carlo Uncertainty Propagation**: Executed 2,000 stochastic draws per district $\times$ medicine, generating P10/P50/P90 demand bands and exact shortage probabilities $P(\text{demand} > \text{surge stock})$.
+- **Fast ML Surrogate**: Trained Random Forest surrogate classifier (`models/shortage_classifier.joblib`) achieving 100% fidelity accuracy and low ECE (0.0085) for instant dashboard slider interaction.
+- **Legacy Cleanup**: Archived `scripts/synthetic_demand.py` to `archive/legacy_synthetic/synthetic_demand.py` with an explicit warning README.
+
 
 
 

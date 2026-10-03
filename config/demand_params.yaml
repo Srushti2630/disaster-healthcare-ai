@@ -1,0 +1,73 @@
+# Epidemiological Healthcare Demand Parameters
+# Sources: WHO Interagency Emergency Health Kit (IEHK 2017) & Sphere Handbook Standards
+# Provenance Tag: ASSUMED (with min/mid/max ranges for Monte-Carlo sampling)
+
+medicines:
+  antibiotics:
+    unit: "tablets/courses"
+    rate_per_affected_day:
+      min: 0.15
+      mid: 0.25
+      max: 0.40
+    citation: "WHO IEHK 2017 Essential Medicines Module (10,000 pop / 3 months)"
+    provenance: "ASSUMED"
+
+  ors:
+    unit: "sachets"
+    rate_per_affected_day:
+      min: 0.40
+      mid: 0.80
+      max: 1.50
+    citation: "Sphere Handbook Minimum Standards in Diarrhoeal Disease Management"
+    provenance: "ASSUMED"
+
+  iv_fluids:
+    unit: "liters (500ml bottles)"
+    rate_per_affected_day:
+      min: 0.10
+      mid: 0.20
+      max: 0.35
+    citation: "WHO Emergency Surgical & Medical Care Protocol"
+    provenance: "ASSUMED"
+
+  analgesics:
+    unit: "doses/tablets"
+    rate_per_affected_day:
+      min: 0.30
+      mid: 0.50
+      max: 0.80
+    citation: "WHO IEHK Pain Management Standard Norms"
+    provenance: "ASSUMED"
+
+  blood_units:
+    unit: "units (350ml whole blood/RBC)"
+    rate_per_injured_day:
+      min: 0.05
+      mid: 0.12
+      max: 0.25
+    citation: "National Blood Transfusion Council (NBTC) Trauma Guidelines"
+    provenance: "ASSUMED"
+
+hazard_multipliers:
+  Flood:
+    duration_days: 14
+    severity_scaling: 1.2
+  Storm:
+    duration_days: 7
+    severity_scaling: 1.4
+  Earthquake:
+    duration_days: 10
+    severity_scaling: 1.8
+  Epidemic:
+    duration_days: 30
+    severity_scaling: 2.0
+  Extreme temperature:
+    duration_days: 7
+    severity_scaling: 1.1
+
+stock_norms:
+  days_of_baseline_stock:
+    min: 3.0
+    mid: 5.0
+    max: 7.0
+  beds_surge_multiplier: 10.0  # units of medicine available per hospital bed
