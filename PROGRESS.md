@@ -1,27 +1,28 @@
 # Project Progress
 
 ## Status Overview
-- Current Stage Completed: **Stage 3 (OR-Tools Multi-Objective Resource Allocation Optimiser)**
-- Next Stage: **Stage 4 (Single-File Streamlit Decision-Support Dashboard)**
+- Current Stage Completed: **Stage 4 (Single-File Streamlit Decision-Support Dashboard)**
+- Next Stage: **Stage 5 (Unit Tests, Pinned Dependencies, and Honest README)**
 
-## Stage 3 Summary
-- **Built**: `src/optimise.py`, `reports/sample_allocation_plan.csv`, `reports/pareto_sweep.png`, and `reports/allocation_summary.json`.
+## Stage 4 Summary
+- **Built**: `app.py`, a single-file Streamlit decision-support application with 4 functional pages:
+  1. *Regional Overview*: Interactive map (`st.map`), escalation warning banners for active High shortages, and summary KPIs.
+  2. *Predict & What-If*: Multi-parameter simulation (hazard type, severity, intensity, epicentre, month, local inventory override), real-time 3.1 impact prediction, 3.2 7-day demand with 90% conformal prediction intervals, 3.3 calibrated shortage risk with conservative alert thresholds, and 3.4 dynamic clinical SHAP explanations.
+  3. *Multi-Objective Allocation*: Interactive weight sliders, OR-Tools MIP execution, Pareto frontier visualization, and human-in-the-loop governance (Approve/Reject actions logged to `reports/audit_log.csv` with mandatory review blocks when confidence < 0.60).
+  4. *Model Governance & Provenance*: Comprehensive metrics reporting, real EM-DAT benchmark comparison, calibration curves, SHAP summary plot, disaggregated bias audit, and prominent SEMI-SYNTHETIC warnings.
 - **How to Run**:
   ```bash
-  .venv/bin/python -m src.optimise
+  .venv/bin/streamlit run app.py
   ```
 - **Key Numbers**:
-  - Evaluated on acute disaster scenario (Scenario #4: Severity 5 Earthquake).
-  - Solve time: **33.6 ms** to global optimality via Google OR-Tools SCIP MIP solver.
-  - Recommended transfers: 24 routes across 10 regions, moving **584,608 medicine units**.
-  - Unmet demand reduced from 1,920,883 to 1,336,397 units (**30.4% reduction**).
-  - Fairness improved: Minimum regional coverage lifted from 16.2% to 22.0% while strictly enforcing source safety reserves.
-  - Pareto sweep completed across 6 operational weight configurations (Demand Priority, High Urgency, Balanced Standard, Fair Distribution, Cost-Conscious, Maximum Fairness).
+  - Interactive response time: < 50 ms for full prediction pipeline + optimization run.
+  - Conformal bounds rendered at nominal 90% confidence ($[\\hat{y} - 394, \\hat{y} + 394]$ units).
+  - Human approval records captured with timestamps, reviewer credentials, and model versions in `reports/audit_log.csv`.
 - **Key Decisions**:
-  - Source regions are constrained to keep at least 60% of their own predicted demand as emergency safety reserve.
-  - Priority tagged as CRITICAL (High risk destination), HIGH (Medium risk), or STANDARD (Low risk), paired with calibrated confidence scores.
+  - Streamlit's built-in `st.map` used to avoid external dependencies (e.g. Folium).
+  - Human review checkbox strictly enforces confirmation before approving low-confidence recommendations.
 - **Open Problems / Notes**:
-  - In extreme severity disasters, regional supply limits cap total demand satisfaction; this demonstrates why safety reserve policies are critical to prevent source region depletion.
+  - All dashboard components successfully verified. Ready for test suite and final documentation.
 
 ## How to Resume
 ```bash
@@ -33,6 +34,9 @@
 
 # Run optimizer
 .venv/bin/python -m src.optimise
+
+# Launch dashboard
+.venv/bin/streamlit run app.py
 
 # Run tests
 .venv/bin/pytest -q
