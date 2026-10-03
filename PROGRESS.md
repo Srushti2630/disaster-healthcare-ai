@@ -1,43 +1,38 @@
 # Project Progress
 
 ## Status Overview
-- Current Stage Completed: **Stage 2 (Models, Uncertainty, SHAP, and Bias Evaluation)**
-- Next Stage: **Stage 3 (OR-Tools Multi-Objective Resource Allocation Optimiser)**
+- Current Stage Completed: **Stage 3 (OR-Tools Multi-Objective Resource Allocation Optimiser)**
+- Next Stage: **Stage 4 (Single-File Streamlit Decision-Support Dashboard)**
 
-## Stage 2 Summary
-- **Built**: `src/train.py`, versioned artifacts in `models/` (bundle, impact, demand, classifier, conformal, SHAP), `reports/metrics.json`, `reports/bias_table.csv`, `reports/calibration.png`, and `reports/shap_summary.png`.
+## Stage 3 Summary
+- **Built**: `src/optimise.py`, `reports/sample_allocation_plan.csv`, `reports/pareto_sweep.png`, and `reports/allocation_summary.json`.
 - **How to Run**:
   ```bash
-  .venv/bin/python -m src.train
+  .venv/bin/python -m src.optimise
   ```
 - **Key Numbers**:
-  - Group Split: 320 train scenarios (16,000 rows) vs 80 test scenarios (4,000 rows) with 0 scenario overlap.
-  - Module 3.3 Shortage Classifier:
-    - Logistic Regression Baseline: Accuracy 80.3%, Macro F1 0.744.
-    - Calibrated Random Forest: Accuracy 90.1%, Macro F1 0.862, ECE = 0.0177.
-    - Conservative Thresholding ($\tau_{\text{high}}=0.37$): High-risk recall increased from 88.7% to **92.4%** (precision trade-off: 88.7% -> 86.0%).
-  - Module 3.1 Disaster Impact:
-    - Real EM-DAT Benchmark: RF MAE 2.90, $R^2 = 0.129$ vs baseline $R^2 = -0.004$.
-    - Synthetic Impact Pipeline: XGBoost predicting affected_pop, injured, and ill without ground-truth leakage.
-  - Module 3.2 Demand Forecast:
-    - XGBoost $R^2 = 0.907$, MAE = 208.5 units.
-    - Conformal prediction interval margin: $\pm 394.2$ units; empirical held-out coverage: **86.1%** (nominal 90%).
-  - Module 3.4 SHAP: Global TreeExplainer summary and natural language admin explanation function.
-  - Bias Evaluation: Disaggregated across 10 regions and 3 disaster hazards; disparities flagged for lower recall regions in `reports/bias_table.csv`.
+  - Evaluated on acute disaster scenario (Scenario #4: Severity 5 Earthquake).
+  - Solve time: **33.6 ms** to global optimality via Google OR-Tools SCIP MIP solver.
+  - Recommended transfers: 24 routes across 10 regions, moving **584,608 medicine units**.
+  - Unmet demand reduced from 1,920,883 to 1,336,397 units (**30.4% reduction**).
+  - Fairness improved: Minimum regional coverage lifted from 16.2% to 22.0% while strictly enforcing source safety reserves.
+  - Pareto sweep completed across 6 operational weight configurations (Demand Priority, High Urgency, Balanced Standard, Fair Distribution, Cost-Conscious, Maximum Fairness).
 - **Key Decisions**:
-  - Used scikit-learn `CalibratedClassifierCV(cv=3, method='sigmoid')` for fast 3-fold cross-validated calibration.
-  - Leakage columns strictly isolated from classifier input.
-  - Threshold tuned conservatively on train probabilities to prioritize patient safety.
+  - Source regions are constrained to keep at least 60% of their own predicted demand as emergency safety reserve.
+  - Priority tagged as CRITICAL (High risk destination), HIGH (Medium risk), or STANDARD (Low risk), paired with calibrated confidence scores.
 - **Open Problems / Notes**:
-  - Pune and Nagpur flagged for slightly lower High-risk recall (<85%), highlighting regional disparity under conservative thresholding.
+  - In extreme severity disasters, regional supply limits cap total demand satisfaction; this demonstrates why safety reserve policies are critical to prevent source region depletion.
 
 ## How to Resume
 ```bash
 # Clean data
 .venv/bin/python -m src.clean
 
-# Train models and generate reports
+# Train models
 .venv/bin/python -m src.train
+
+# Run optimizer
+.venv/bin/python -m src.optimise
 
 # Run tests
 .venv/bin/pytest -q

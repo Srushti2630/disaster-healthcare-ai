@@ -1,0 +1,78 @@
+{
+  "scenario_id": 4,
+  "disaster_type": "earthquake",
+  "severity": 5,
+  "balanced_summary": {
+    "solve_status": "OPTIMAL",
+    "solve_time_ms": 33.6,
+    "total_transferred_units": 584608,
+    "total_transport_cost": 13740991.56,
+    "unmet_demand_before": 1920883.3,
+    "unmet_demand_after": 1336397.3,
+    "demand_reduction_pct": 30.4,
+    "min_coverage_before": 0.162,
+    "min_coverage_after": 0.22
+  },
+  "pareto_sweep": [
+    {
+      "name": "1. Pure Demand Priority",
+      "w_unmet": 2.0,
+      "w_cost": 0.01,
+      "w_fairness": 0.0,
+      "unmet_demand": 1336399.1,
+      "transport_cost": 13691723.99,
+      "min_coverage": 0.162,
+      "transferred_units": 584488
+    },
+    {
+      "name": "2. High Urgency",
+      "w_unmet": 1.5,
+      "w_cost": 0.05,
+      "w_fairness": 0.2,
+      "unmet_demand": 1336402.9,
+      "transport_cost": 13740749.57,
+      "min_coverage": 0.22,
+      "transferred_units": 584598
+    },
+    {
+      "name": "3. Balanced Standard",
+      "w_unmet": 1.0,
+      "w_cost": 0.1,
+      "w_fairness": 0.5,
+      "unmet_demand": 1336397.3,
+      "transport_cost": 13740991.56,
+      "min_coverage": 0.22,
+      "transferred_units": 584608
+    },
+    {
+      "name": "4. Fair Distribution",
+      "w_unmet": 0.8,
+      "w_cost": 0.1,
+      "w_fairness": 1.5,
+      "unmet_demand": 1336397.3,
+      "transport_cost": 13740991.56,
+      "min_coverage": 0.22,
+      "transferred_units": 584608
+    },
+    {
+      "name": "5. Cost-Conscious",
+      "w_unmet": 0.6,
+      "w_cost": 0.5,
+      "w_fairness": 0.3,
+      "unmet_demand": 1336397.3,
+      "transport_cost": 13740991.56,
+      "min_coverage": 0.22,
+      "transferred_units": 584608
+    },
+    {
+      "name": "6. Maximum Fairness",
+      "w_unmet": 0.5,
+      "w_cost": 0.05,
+      "w_fairness": 2.5,
+      "unmet_demand": 1336397.3,
+      "transport_cost": 13740991.56,
+      "min_coverage": 0.22,
+      "transferred_units": 584608
+    }
+  ]
+}
