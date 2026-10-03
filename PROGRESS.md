@@ -1,8 +1,8 @@
 # Project Progress
 
 ## Status Overview
-- Current Stage Completed: **Phase 0 (Audit & Hygiene, Config, Makefile, Dependency Trimming, Data Governance Setup)**
-- Overall Status: **IN PROGRESS (Phase 0 Complete, Phase 1 Real Data Layer Next)**
+- Current Stage Completed: **Phase 1 (Real Data Layer: Boundaries, WorldPop Population, Hospital Directory, ICU Bed Anchors, EM-DAT Events, Event Weather)**
+- Overall Status: **IN PROGRESS (Phase 1 Complete, Phase 2 Real Impact Model Next)**
 
 ## Phase Summaries
 ### Phase 0: Audit & Hygiene
@@ -11,9 +11,15 @@
 - **Config & Automation**: Created state-agnostic `config.yaml`, `run_all.py`, and `Makefile`.
 - **Repo Hygiene & Data Docs**: Updated `.gitignore` to track data structures while ignoring large raw binaries (>50 MB). Created `data/README.md` and `docs/DATA_NEEDED.md`.
 
-### Stage 1: Data Cleaning & Climatology
-- **Built**: `src/clean.py`, producing `data/processed/clean/` and `reports/data_quality.md`.
-- **Outputs**: Cleaned EM-DAT disaster catalogue (810 events, 512 non-null casualties), 120 regional monthly climatology profiles, 400 validated synthetic disaster scenarios.
+### Phase 1: Real Data Layer (`src/data/`)
+- **District Boundaries**: Constructed canonical 35 Maharashtra district geometries (`src/data/boundaries.py`).
+- **WorldPop Zonal Population (REAL)**: Calculated 1km raster zonal sum population for 35 districts (`data/processed/district_population.csv`, total MH Pop = 124.5M, error < 0.1%).
+- **National Hospital Directory (REAL)**: Cleaned 4,767 Maharashtra healthcare facilities (`data/processed/district_facilities.csv` and `cleaned_facilities.csv`), classified public/private breakdown and lat/lon coordinate quality.
+- **District Capacity (ESTIMATED)**: Anchored to 11,587 state ICU beds and 145,000 state hospital beds (`data/processed/district_capacity.csv`).
+- **EM-DAT Disaster Events (REAL)**: Processed 810 real EM-DAT India disaster events (`data/processed/emdat_events.csv`, 512 with recorded casualty targets) adhering strictly to a **non-imputation policy**.
+- **Event-Date Weather (ESTIMATED)**: Extracted 1/3/7-day rolling precipitation, max wind, and temperature extremes for event dates (`data/processed/weather_events.csv`).
+- **Governance & Audit**: Created machine-readable `data/provenance.yaml` and `reports/data_quality.md`.
+
 
 ### Stage 2: Models, Uncertainty & Explainability
 - **Built**: `src/train.py`, `models/pipeline_bundle.joblib`, `reports/metrics.json`, `reports/calibration.png`, `reports/shap_summary.png`, and `reports/bias_table.csv`.

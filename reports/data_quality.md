@@ -1,67 +1,60 @@
-# Data Quality and Preprocessing Report
+# Real Data Layer & Data Quality Report
 
-## Executive Summary
-This report documents the end-to-end data cleaning, verification, and transformation process for the **Disaster Healthcare Demand Prediction and Resource Allocation** framework.
-
-- **Data Provenance**:
-  - **Real Disaster Data**: EM-DAT India historical catalogue (810 records spanning 1980–2024).
-  - **Climatological Data**: Daily weather history transformed into regional monthly climatologies (mean and 90th percentile).
-  - **Healthcare & Shortage Data**: Semi-synthetic simulated datasets generated from epidemiological disaster response assumptions across 10 Maharashtra administrative zones.
+## 1. Executive Summary
+This document records the provenance, schema validations, and data quality metrics for the **Explainable & Uncertainty-Aware Disaster Healthcare AI Framework**. Synthetic data generation has been replaced with real, verifiable public datasets wherever real data exists.
 
 ---
 
-## 1. Real Disaster Events (`disaster_events.csv`)
-- **Initial Row Count**: 810
-- **Exact Duplicates Removed**: 0
-- **Likely Cross-Source Duplicates Flagged**: 0
-  - *Rule*: Same disaster type, within 3 calendar days, and Haversine distance < 200 km across differing data sources. Flagged via `is_likely_duplicate` without destructive merge.
-- **Geographic Attribution**:
-  - India: 810 records
-- **Target Missingness & Non-Imputation Policy**:
-  - `affected` missing: 298 / 810 (36.8%)
-  - `injuries` missing: 674 / 810 (83.2%)
-  - `deaths` missing: 64 / 810 (7.9%)
-  - **Strict Policy**: In compliance with clinical validation standards, target columns (`affected`, `injuries`, `deaths`) are **NEVER imputed**. Records lacking targets are dropped from training subsets rather than synthetically filled.
-  - Rows with non-null `affected`: **512** (meets >200 threshold for real-world impact modeling).
-- **Transformations**:
-  - Logarithmic transform: `log1p(target)` applied to stabilize high-variance, heavy-tailed casualties.
-  - Wind speed: Standardized knots to km/h ($1\text{ knot} = 1.852\text{ km/h}$) for marine storm catalogues.
+## 2. Dataset Provenance Summary
+
+| Dataset | Granularity | Records | Provenance Tag | Source / Citation |
+|---|---|---|---|---|
+| **EM-DAT Disaster Events** | Event-level (India) | 810 | `REAL` | CRED EM-DAT International Disaster Database (1900–2026) |
+| **Hospital Directory** | Facility-level (MH) | 4,767 | `REAL` | National Health Portal India (data.gov.in) |
+| **Statewise ICU Beds** | State-level anchor | 36 states | `REAL` | Kapoor et al. (2020) / NHP ICU Bed Audit |
+| **WorldPop Population** | 1km raster / Zonal | 35 districts | `REAL` | WorldPop 2020 Constrained Population Grid |
+| **District Bed Capacity** | District-level (MH) | 35 districts | `ESTIMATED` | Scaled from ICU Audit + Facility Count + Pop Weighting |
+| **Event Weather** | Event-date window | 810 events | `ESTIMATED` | Open-Meteo Archive / Physics Climatology |
+| **Epidemiological Demand** | Per patient / day | 5 drug classes | `ASSUMED` | WHO IEHK 2017 & Sphere Handbook |
 
 ---
 
-## 2. Weather & Climatology (`weather_monthly_climatology.csv`)
-- **Underlying Daily Records Processed**: 91,320
-- **Regions Modeled**: 10
-- **Climatology Aggregation Level**: Region $\times$ Month (12 months $\times$ 10 regions = 120 records).
-- **Extracted Indicators**:
-  - Rainfall: Mean precipitation and 90th percentile peak rainfall (`precip_mean`, `precip_p90`).
-  - Temperature: Max daily temperature mean/p90 and min daily temperature mean.
-  - Wind Speed: Mean and 90th percentile wind speed.
-- **Identified Limitations**:
-  - Disaster events are linked to regional weather via `(region, month)` climatological profiles rather than exact hour-of-event telemetry due to historical observation sparsity in regional stations.
+## 3. Real Data Quality Breakdown
+
+### A. WorldPop Population Zonal Sums (`district_population.csv`)
+- **Districts Covered**: 35 administrative districts of Maharashtra.
+- **Total Population**: **124,499,982** (aligned with Census 2011 baseline of 112.37M and 2020 projection of 124.5M, error < 0.1%).
+- **Top 3 Districts by Population**: Thane, Pune, Mumbai.
+
+### B. National Hospital Directory (`cleaned_facilities.csv` & `district_facilities.csv`)
+- **Total Facilities Cleaned**: 4,767 records across Maharashtra.
+- **Coordinate Precision**:
+  - `exact` ("lat, lon" parsed from registry): **2952** (61.9%)
+  - `pincode` (pincode centroid fallback): **1815** (38.1%)
+  - `district` (district centroid fallback): **0** (0.0%)
+- **Public vs Private Facilities**:
+  - Public facilities: **4,677** (98.1%)
+  - Private facilities: **90** (1.9%)
+- **Bed Field Disclosure**: `Total_Num_Beds` is populated and valid (1–5000) for only ~32 facilities in Maharashtra. Direct use of `Total_Num_Beds` as district bed count is strictly prohibited due to sparsity; bed capacity is estimated via state-level ICU bed anchoring.
+
+### C. District Healthcare & ICU Capacity (`district_capacity.csv`)
+- **State ICU Anchor**: **11,587 total ICU beds** (2,572 public / 9,015 private).
+- **Total State Hospital Beds**: **144,981 beds**.
+- **District Capacity Range (P10 Low / P50 Mid / P90 High)**:
+  - Total Beds: 115,971 (Low) to 173,964 (High)
+  - Total ICU Beds: 9,240 (Low) to 13,870 (High)
+
+### D. EM-DAT Historical Disaster Catalogue (`emdat_events.csv`)
+- **Total India Disaster Events**: 810
+- **Casualty Target Coverage (Strict Non-Imputation Policy)**:
+  - `total_affected`: 512 / 810 (63.2%)
+  - `no_injured`: 136 / 810 (16.8%)
+  - `total_deaths`: 746 / 810 (92.1%)
+- **Disaster Types**: Flood (335), Storm (225), Epidemic (69), Extreme temperature (65), Mass movement (wet) (62).
 
 ---
 
-## 3. Semi-Synthetic Demand and Shortage Tables
-- **Regions Table**: 10 administrative nodes. Latitudes (16.7°–21.15°N), Longitudes (72.88°–79.09°E). All populations and hospital beds strictly positive.
-- **Region Distances**: 10$\times$10 symmetric matrix verified with zero diagonal entries.
-- **Scenarios Table**: 400 disaster scenarios generated across 3 hazards:
-  - flood: 194
-  - cyclone: 107
-  - earthquake: 99
-- **Daily Demand Table**: 280,000 rows covering 14-day horizons across 5 essential medicines:
-  - antibiotics, ors, iv_fluids, analgesics, blood_units
-- **Shortage Dataset**:
-  - Total records: 20,000
-  - `coverage_ratio` clipping: Capped at **99.0** (handling division-by-zero when baseline demand is minimal).
-  - Risk Level Distribution:
-    - Low: 13199 (66.0%)
-    - High: 3563 (17.8%)
-    - Medium: 3238 (16.2%)
-
----
-
-## 4. Pipeline Purity & Integrity Guarantees
-- No data leakage between simulation runs.
-- Transformers and scalers are restricted strictly to training folds.
-- Target columns (`shortage_qty`, `coverage_ratio`, `demand_7d`) are completely isolated from feature sets.
+## 4. Integrity and Leakage Guarantees
+- Raw input datasets in `data/raw/` are strictly read-only.
+- All spatial and population joins are validated to achieve $\ge 95\%$ district coverage.
+- Casualty targets in EM-DAT are never imputed. Missing targets remain `NaN` and are excluded from loss calculation.

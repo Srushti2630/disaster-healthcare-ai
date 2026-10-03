@@ -1,0 +1,91 @@
+version: "2.0.0"
+updated_at: "2026-10-04"
+
+datasets:
+  emdat_events:
+    tag: "REAL"
+    source: "EM-DAT International Disaster Database (CRED)"
+    url: "https://public.emdat.be/"
+    records: 810
+    description: "Historical disaster events catalogue for India with non-imputed casualty figures."
+    columns:
+      event_id: "REAL"
+      disaster_type: "REAL"
+      event_date: "REAL"
+      total_affected: "REAL"
+      no_injured: "REAL"
+      total_deaths: "REAL"
+
+  hospital_directory:
+    tag: "REAL"
+    source: "National Health Portal India (data.gov.in)"
+    url: "https://data.gov.in/"
+    records: 4807
+    description: "Cleaned Maharashtra health facilities with geolocation coordinates and public/private classification."
+    columns:
+      total_facilities: "REAL"
+      public_facilities: "REAL"
+      private_facilities: "REAL"
+      coord_quality: "REAL"
+
+  icu_beds_statewise:
+    tag: "REAL"
+    source: "National Health Profile / Kapoor et al. (2020)"
+    records: 36
+    description: "Hard state-level ICU bed counts (Maharashtra: 2,572 public / 9,015 private / 11,587 total)."
+    columns:
+      public_icu_beds: "REAL"
+      private_icu_beds: "REAL"
+      total_icu_beds: "REAL"
+
+  district_population:
+    tag: "REAL"
+    source: "WorldPop 2020 High-Resolution Population Grid"
+    url: "https://www.worldpop.org/"
+    records: 35
+    description: "Zonal sum population per Maharashtra district extracted from 1km constrained raster."
+    columns:
+      population: "REAL"
+      pop_density_sqkm: "REAL"
+
+  district_capacity:
+    tag: "ESTIMATED"
+    source: "Derived from State ICU Audit + Facility Count + Population Weighting"
+    description: "Estimated low/mid/high total hospital and ICU bed capacities per district."
+    columns:
+      beds_low: "ESTIMATED"
+      beds_mid: "ESTIMATED"
+      beds_high: "ESTIMATED"
+      icu_beds_low: "ESTIMATED"
+      icu_beds_mid: "ESTIMATED"
+      icu_beds_high: "ESTIMATED"
+
+  event_weather:
+    tag: "ESTIMATED"
+    source: "Open-Meteo Historical Archive / Climatological Physics Interpolation"
+    description: "Event-window (-3 to +7 days) precipitation, wind, and temperature extremes."
+    columns:
+      precip_1d_mm: "ESTIMATED"
+      precip_3d_mm: "ESTIMATED"
+      precip_7d_mm: "ESTIMATED"
+      wind_max_kmh: "ESTIMATED"
+      temp_max_c: "ESTIMATED"
+
+  epidemiological_demand_params:
+    tag: "ASSUMED"
+    source: "WHO Interagency Emergency Health Kit (IEHK 2017) & Sphere Handbook Standards"
+    description: "Per-patient daily medicine consumption rates and epidemic curve duration parameters."
+    parameters:
+      antibiotics_rate_per_patient_day: "ASSUMED"
+      ors_sachets_per_patient_day: "ASSUMED"
+      iv_fluids_liters_per_patient_day: "ASSUMED"
+      analgesics_doses_per_patient_day: "ASSUMED"
+      blood_units_per_severe_injury: "ASSUMED"
+
+  logistics_parameters:
+    tag: "ASSUMED"
+    source: "Road Transport & Circuity Norms (Haversine x 1.3)"
+    description: "Distance circuity factor and transport unit costs per km."
+    parameters:
+      circuity_factor: "ASSUMED"
+      cost_per_km_unit: "ASSUMED"
