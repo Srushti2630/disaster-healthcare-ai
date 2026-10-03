@@ -4,6 +4,7 @@ Handles shapefile/GeoJSON loading from data/raw/boundaries/ or constructs valid 
 """
 from pathlib import Path
 import json
+import numpy as np
 import pandas as pd
 import geopandas as gpd
 from shapely.geometry import Point, Polygon, box
@@ -11,6 +12,17 @@ import shapely.ops
 
 BOUNDARIES_DIR = Path("data/raw/boundaries")
 PROCESSED_DIR = Path("data/processed")
+
+def haversine_distance(lat1, lon1, lat2, lon2):
+    """Calculate haversine distance in km between two lat/lon coordinates."""
+    r = 6371.0  # Earth radius in km
+    phi1, phi2 = np.radians(lat1), np.radians(lat2)
+    dphi = np.radians(lat2 - lat1)
+    dlambda = np.radians(lon2 - lon1)
+    a = (np.sin(dphi / 2.0) ** 2 +
+         np.cos(phi1) * np.cos(phi2) * np.sin(dlambda / 2.0) ** 2)
+    return 2.0 * r * np.arcsin(np.clip(np.sqrt(a), 0, 1))
+
 
 # Canonical 35 Districts of Maharashtra with official centroid coordinates and Census 2011 population weights
 MAHARASHTRA_DISTRICTS = {

@@ -1,78 +1,35 @@
 {
-  "scenario_id": 4,
-  "disaster_type": "earthquake",
-  "severity": 5,
-  "balanced_summary": {
+  "opt_summary": {
     "solve_status": "OPTIMAL",
-    "solve_time_ms": 38.77,
-    "total_transferred_units": 584608,
-    "total_transport_cost": 13740991.56,
-    "unmet_demand_before": 1920883.3,
-    "unmet_demand_after": 1336397.3,
-    "demand_reduction_pct": 30.4,
-    "min_coverage_before": 0.162,
-    "min_coverage_after": 0.22
+    "solve_time_ms": 296.67,
+    "total_transferred_units": 1436781,
+    "total_transport_cost": 9377750.55,
+    "unmet_demand_before": 1438941.8,
+    "unmet_demand_after": 2898.0,
+    "demand_reduction_pct": 99.8,
+    "min_coverage_before": 0.417,
+    "min_coverage_after": 0.772
   },
-  "pareto_sweep": [
-    {
-      "name": "1. Pure Demand Priority",
-      "w_unmet": 2.0,
-      "w_cost": 0.01,
-      "w_fairness": 0.0,
-      "unmet_demand": 1336399.1,
-      "transport_cost": 13691723.99,
-      "min_coverage": 0.162,
-      "transferred_units": 584488
+  "benchmarks": {
+    "OR_Tools_SCIP": {
+      "unmet_demand": 2898.0,
+      "min_coverage": 0.772,
+      "improvement_vs_no_redist_pct": 99.8
     },
-    {
-      "name": "2. High Urgency",
-      "w_unmet": 1.5,
-      "w_cost": 0.05,
-      "w_fairness": 0.2,
-      "unmet_demand": 1336402.9,
-      "transport_cost": 13740749.57,
-      "min_coverage": 0.22,
-      "transferred_units": 584598
+    "No_Redistribution": {
+      "unmet_demand": 1438941.8,
+      "min_coverage": 0.417,
+      "improvement_vs_no_redist_pct": 0.0
     },
-    {
-      "name": "3. Balanced Standard",
-      "w_unmet": 1.0,
-      "w_cost": 0.1,
-      "w_fairness": 0.5,
-      "unmet_demand": 1336397.3,
-      "transport_cost": 13740991.56,
-      "min_coverage": 0.22,
-      "transferred_units": 584608
+    "Proportional_Population": {
+      "unmet_demand": 441630.4,
+      "min_coverage": 0.459,
+      "improvement_vs_no_redist_pct": 69.3
     },
-    {
-      "name": "4. Fair Distribution",
-      "w_unmet": 0.8,
-      "w_cost": 0.1,
-      "w_fairness": 1.5,
-      "unmet_demand": 1336397.3,
-      "transport_cost": 13740991.56,
-      "min_coverage": 0.22,
-      "transferred_units": 584608
-    },
-    {
-      "name": "5. Cost-Conscious",
-      "w_unmet": 0.6,
-      "w_cost": 0.5,
-      "w_fairness": 0.3,
-      "unmet_demand": 1336397.3,
-      "transport_cost": 13740991.56,
-      "min_coverage": 0.22,
-      "transferred_units": 584608
-    },
-    {
-      "name": "6. Maximum Fairness",
-      "w_unmet": 0.5,
-      "w_cost": 0.05,
-      "w_fairness": 2.5,
-      "unmet_demand": 1336397.3,
-      "transport_cost": 13740991.56,
-      "min_coverage": 0.22,
-      "transferred_units": 584608
+    "Greedy_Nearest": {
+      "unmet_demand": 0.0,
+      "min_coverage": 0.521,
+      "improvement_vs_no_redist_pct": 100.0
     }
-  ]
+  }
 }

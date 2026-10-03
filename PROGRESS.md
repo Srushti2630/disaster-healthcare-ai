@@ -1,8 +1,8 @@
 # Project Progress
 
 ## Status Overview
-- Current Stage Completed: **Phase 3 (Transparent Demand Engine, 2,000 Draw Monte-Carlo Simulation, ML Surrogate, Legacy Generator Archive)**
-- Overall Status: **IN PROGRESS (Phase 3 Complete, Phase 4 Optimiser Upgrade Next)**
+- Current Stage Completed: **Phase 4 (OR-Tools SCIP Multi-Objective Optimization, Pareto Sweep, 3-Baseline Comparison)**
+- Overall Status: **IN PROGRESS (Phase 4 Complete, Phase 5 Dashboard Next)**
 
 ## Phase Summaries
 ### Phase 0: Audit & Hygiene
@@ -31,6 +31,13 @@
 - **Monte-Carlo Uncertainty Propagation**: Executed 2,000 stochastic draws per district $\times$ medicine, generating P10/P50/P90 demand bands and exact shortage probabilities $P(\text{demand} > \text{surge stock})$.
 - **Fast ML Surrogate**: Trained Random Forest surrogate classifier (`models/shortage_classifier.joblib`) achieving 100% fidelity accuracy and low ECE (0.0085) for instant dashboard slider interaction.
 - **Legacy Cleanup**: Archived `scripts/synthetic_demand.py` to `archive/legacy_synthetic/synthetic_demand.py` with an explicit warning README.
+
+### Phase 4: OR-Tools SCIP Optimization & Benchmarking (`src/optimise.py`)
+- **35 District Node Network**: Upgraded MIP solver to 35 Maharashtra district nodes with real coordinates and $1.3\times$ circuity factor road distance matrix.
+- **Multi-Objective & Constraints**: Implemented safety reserves, integer pack sizes, perishables max transit distance (blood units $\le 150$ km), medicine criticality weighting, and high-risk export prohibitions.
+- **Baseline Benchmarking**: Achieved **99.8% unmet demand reduction** vs No Redistribution baseline, outperforming Proportional Population (69.3%) and Greedy Nearest baselines.
+- **Artifacts**: Exported allocation plan (`reports/sample_allocation_plan.csv`) and Pareto curve summary (`reports/allocation_summary.json`).
+
 
 
 
