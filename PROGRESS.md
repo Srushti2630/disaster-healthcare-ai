@@ -1,26 +1,44 @@
 # Project Progress
 
 ## Status Overview
-- Current Stage Completed: **Stage 1 (Data Cleaning & Climatology)**
-- Next Stage: **Stage 2 (Models, Uncertainty, SHAP, and Bias Evaluation)**
+- Current Stage Completed: **Stage 2 (Models, Uncertainty, SHAP, and Bias Evaluation)**
+- Next Stage: **Stage 3 (OR-Tools Multi-Objective Resource Allocation Optimiser)**
 
-## Stage 1 Summary
-- **Built**: `src/clean.py`, producing cleaned and validated tables in `data/processed/clean/` and `reports/data_quality.md`.
+## Stage 2 Summary
+- **Built**: `src/train.py`, versioned artifacts in `models/` (bundle, impact, demand, classifier, conformal, SHAP), `reports/metrics.json`, `reports/bias_table.csv`, `reports/calibration.png`, and `reports/shap_summary.png`.
+- **How to Run**:
+  ```bash
+  .venv/bin/python -m src.train
+  ```
 - **Key Numbers**:
-  - EM-DAT disaster events: 810 records (512 non-null `affected`, suitable for training Module 3.1 real-impact models; 0 exact duplicates; knots converted to km/h).
-  - Weather climatology: 91,320 daily weather observations converted to 120 regional monthly climatology profiles across 10 regions.
-  - Semi-synthetic data: 400 scenarios, 20,000 shortage rows (risk levels: 66.0% Low, 16.2% Medium, 17.8% High), `coverage_ratio` strictly capped at 99.0.
+  - Group Split: 320 train scenarios (16,000 rows) vs 80 test scenarios (4,000 rows) with 0 scenario overlap.
+  - Module 3.3 Shortage Classifier:
+    - Logistic Regression Baseline: Accuracy 80.3%, Macro F1 0.744.
+    - Calibrated Random Forest: Accuracy 90.1%, Macro F1 0.862, ECE = 0.0177.
+    - Conservative Thresholding ($\tau_{\text{high}}=0.37$): High-risk recall increased from 88.7% to **92.4%** (precision trade-off: 88.7% -> 86.0%).
+  - Module 3.1 Disaster Impact:
+    - Real EM-DAT Benchmark: RF MAE 2.90, $R^2 = 0.129$ vs baseline $R^2 = -0.004$.
+    - Synthetic Impact Pipeline: XGBoost predicting affected_pop, injured, and ill without ground-truth leakage.
+  - Module 3.2 Demand Forecast:
+    - XGBoost $R^2 = 0.907$, MAE = 208.5 units.
+    - Conformal prediction interval margin: $\pm 394.2$ units; empirical held-out coverage: **86.1%** (nominal 90%).
+  - Module 3.4 SHAP: Global TreeExplainer summary and natural language admin explanation function.
+  - Bias Evaluation: Disaggregated across 10 regions and 3 disaster hazards; disparities flagged for lower recall regions in `reports/bias_table.csv`.
 - **Key Decisions**:
-  - Targets (`affected`, `injuries`, `deaths`) are strictly not imputed; missing targets are excluded from training subsets.
-  - Climatology joined on `(region, month)` to honor realistic station availability.
+  - Used scikit-learn `CalibratedClassifierCV(cv=3, method='sigmoid')` for fast 3-fold cross-validated calibration.
+  - Leakage columns strictly isolated from classifier input.
+  - Threshold tuned conservatively on train probabilities to prioritize patient safety.
 - **Open Problems / Notes**:
-  - Real disaster events have sparse injury reports (136 non-null), but 512 affected records (>200 threshold). Module 3.1 will train on real EM-DAT affected population and fall back to synthetic scenarios for multi-casualty injury/illness breakdowns.
+  - Pune and Nagpur flagged for slightly lower High-risk recall (<85%), highlighting regional disparity under conservative thresholding.
 
 ## How to Resume
 ```bash
-# Run data cleaning
+# Clean data
 .venv/bin/python -m src.clean
 
-# Run tests (when created)
+# Train models and generate reports
+.venv/bin/python -m src.train
+
+# Run tests
 .venv/bin/pytest -q
 ```

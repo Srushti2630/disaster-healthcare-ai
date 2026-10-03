@@ -1,0 +1,61 @@
+{
+  "model_version": "v1.0.0",
+  "real_emdat_benchmark": {
+    "dataset": "EM-DAT India (Real)",
+    "samples_used": 512,
+    "mean_baseline_mae": 3.1092531315855982,
+    "mean_baseline_r2": -0.003904115309032008,
+    "rf_mae": 2.896374144555494,
+    "rf_r2": 0.12854539285757138,
+    "note": "Trained on log1p(affected). Targets were never imputed; only rows with recorded affected count were evaluated."
+  },
+  "module_3_1_impact": {
+    "affected_pop": {
+      "baseline_mean_mae": 1.7562320991333882,
+      "baseline_mean_r2": -0.02500800489519328,
+      "random_forest_mae": 0.2570148857973269,
+      "random_forest_r2": 0.9747990885049423,
+      "xgboost_mae": 0.1148561068001896,
+      "xgboost_r2": 0.9919196990540545
+    },
+    "injured": {
+      "baseline_mean_mae": 1.955961500492588,
+      "baseline_mean_r2": -0.03957557871417028,
+      "random_forest_mae": 0.22773124500998917,
+      "random_forest_r2": 0.9811898140677502,
+      "xgboost_mae": 0.13050783569707355,
+      "xgboost_r2": 0.9928938158322812
+    },
+    "ill": {
+      "baseline_mean_mae": 1.7145825496612588,
+      "baseline_mean_r2": -0.018734934042641482,
+      "random_forest_mae": 0.21506896198355885,
+      "random_forest_r2": 0.9816568361088889,
+      "xgboost_mae": 0.11016521602466343,
+      "xgboost_r2": 0.9930888525412778
+    }
+  },
+  "module_3_2_demand": {
+    "baseline_mean_mae": 16524.95140790625,
+    "baseline_mean_r2": 0.02805138065333801,
+    "xgb_mae": 2203.648575684482,
+    "xgb_r2": 0.9066597815738892,
+    "conformal_target_coverage": 0.9,
+    "conformal_margin_units": 2723.9965234375013,
+    "empirical_test_coverage": 0.8605
+  },
+  "module_3_3_shortage_classifier": {
+    "baseline_logistic_acc": 0.80325,
+    "baseline_logistic_macro_f1": 0.7444129467477536,
+    "calibrated_rf_standard_acc": 0.90075,
+    "calibrated_rf_standard_macro_f1": 0.8635407146745872,
+    "high_risk_standard_recall": 0.8869123252858958,
+    "high_risk_standard_precision": 0.8869123252858958,
+    "conservative_threshold_high": 0.37,
+    "conservative_rf_acc": 0.901,
+    "conservative_rf_macro_f1": 0.8620383997923294,
+    "high_risk_conservative_recall": 0.9237611181702668,
+    "high_risk_conservative_precision": 0.8603550295857988,
+    "expected_calibration_error": 0.017729785446670303
+  }
+}
