@@ -1,8 +1,8 @@
 # Project Progress
 
 ## Status Overview
-- Current Stage Completed: **Phase 4 (OR-Tools SCIP Multi-Objective Optimization, Pareto Sweep, 3-Baseline Comparison)**
-- Overall Status: **IN PROGRESS (Phase 4 Complete, Phase 5 Dashboard Next)**
+- Current Stage Completed: **Phase 5 (Decision-Support Dashboard Upgrade, Cryptographic Audit Log, PDF/Excel Export)**
+- Overall Status: **IN PROGRESS (Phase 5 Complete, Phase 6 Fairness & Sensitivity Next)**
 
 ## Phase Summaries
 ### Phase 0: Audit & Hygiene
@@ -37,6 +37,12 @@
 - **Multi-Objective & Constraints**: Implemented safety reserves, integer pack sizes, perishables max transit distance (blood units $\le 150$ km), medicine criticality weighting, and high-risk export prohibitions.
 - **Baseline Benchmarking**: Achieved **99.8% unmet demand reduction** vs No Redistribution baseline, outperforming Proportional Population (69.3%) and Greedy Nearest baselines.
 - **Artifacts**: Exported allocation plan (`reports/sample_allocation_plan.csv`) and Pareto curve summary (`reports/allocation_summary.json`).
+
+### Phase 5: Dashboard & Reporting Upgrade (`app.py`, `src/reporting/`)
+- **Interactive Multi-Page Streamlit App**: Built 35-district Plotly risk map, historical disaster event replay, interactive what-if simulator, OR-Tools allocation plan viewer, and Pareto curve explorer.
+- **Cryptographic Audit Log**: Implemented SHA-256 hash chaining (`src/reporting/audit.py`) for human-in-the-loop approval/rejection logging with reviewer roles and reason codes.
+- **One-Click Situation Report Export**: Built automated PDF (`src/reporting/export.py`) and Excel executive situation report generators.
+
 
 
 
