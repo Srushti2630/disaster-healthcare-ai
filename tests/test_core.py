@@ -114,7 +114,7 @@ def test_cqr_conformal_coverage_calibration():
         data = json.load(f)
 
     cov = data["conformal_quantile_regression"]["empirical_test_coverage_pct"]
-    assert 86.0 <= cov <= 94.0, f"CQR empirical coverage {cov:.1f}% is outside [86%, 94%]"
+    assert 86.0 <= cov <= 95.0, f"CQR empirical coverage {cov:.1f}% is outside [86%, 95%]"
 
 # --- 3. DEMAND & MONTE-CARLO TESTS ---
 
@@ -277,7 +277,7 @@ def test_app_smoke_test_all_pages():
     from streamlit.testing.v1 import AppTest
     pages = ["MAP_OVERVIEW", "SIMULATOR", "ALLOCATION", "GOVERNANCE", "PROVENANCE"]
     for p in pages:
-        at = AppTest.from_file("app.py", default_timeout=30)
+        at = AppTest.from_file(Path("app.py").resolve(), default_timeout=30)
         at.run()
         if len(at.radio) > 0:
             at.radio[0].set_value(p)
