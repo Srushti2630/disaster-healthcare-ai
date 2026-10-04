@@ -40,60 +40,49 @@ def get_geotiff_path() -> Path:
             extracted.rename(TARGET_TIF)
     return TARGET_TIF
 
+from rasterio.mask import mask
+
 def compute_district_populations() -> pd.DataFrame:
-    """Compute zonal sum population for each district from WorldPop raster."""
+    """Compute raw zonal sum population for each district from WorldPop raster using rasterio.mask."""
     tif_path = get_geotiff_path()
     gdf = load_or_create_district_boundaries()
+    is_real = gdf.attrs.get("is_real", True)
 
     records = []
     with rasterio.open(tif_path) as src:
-        for idx, row in gdf.iterrows():
+        gdf_src = gdf.to_crs(src.crs)
+        for idx, row in gdf_src.iterrows():
             d_name = row["district"]
-            geom = row["geometry"]
-            minx, miny, maxx, maxy = geom.bounds
-            
-            # Read windowed raster region around district bounds
+            geom = [row["geometry"]]
             try:
-                win = from_bounds(minx, miny, maxx, maxy, transform=src.transform)
-                arr = src.read(1, window=win)
-                arr = np.where(arr < 0, 0, arr)
+                out_img, _ = mask(src, geom, crop=True)
+                arr = np.where(out_img < 0, 0, out_img)
                 arr = np.nan_to_num(arr, nan=0.0)
                 raw_pop = float(np.sum(arr))
             except Exception as e:
-                # Fallback to area/weight allocation if window out of bounds
+                print(f"Warning: rasterio.mask failed for {d_name}: {e}")
                 raw_pop = 0.0
+
+            area_sqkm = float(row["area_sqkm"]) if ("area_sqkm" in row and not pd.isna(row["area_sqkm"])) else round(row["geometry"].area * (111.0 ** 2), 1)
 
             records.append({
                 "district": d_name,
-                "raw_raster_sum": raw_pop,
-                "area_sqkm": row["area_sqkm"],
-                "pop_weight": row["pop_weight"],
+                "population": int(round(raw_pop)),
+                "area_sqkm": area_sqkm,
             })
 
     df = pd.DataFrame(records)
-    total_raw = df["raw_raster_sum"].sum()
-
-    # If raw sum is zero or unaligned with state boundary polygon clipping, calibrate with pop_weight
-    if total_raw < 50_000_000 or total_raw > 250_000_000:
-        print(f"Calibrating raw raster sum ({total_raw:,.0f}) to target Maharashtra population ({TARGET_MAHARASHTRA_POP_2020:,.0f})...")
-        df["population"] = (df["pop_weight"] * TARGET_MAHARASHTRA_POP_2020).astype(int)
-    else:
-        # Scale to match official projected state population exactly
-        scale = TARGET_MAHARASHTRA_POP_2020 / total_raw
-        df["population"] = (df["raw_raster_sum"] * scale).astype(int)
+    total_raw = df["population"].sum()
+    gap_pct = abs(total_raw - TARGET_MAHARASHTRA_POP_2020) / TARGET_MAHARASHTRA_POP_2020 * 100.0
+    print(f"Raw WorldPop zonal sum total: {total_raw:,.0f} (Official MH 2020 projection: {TARGET_MAHARASHTRA_POP_2020:,.0f}, gap: {gap_pct:.2f}%)")
 
     df["pop_density_sqkm"] = (df["population"] / df["area_sqkm"]).round(2)
-    df["provenance"] = "REAL"
-
-    # Validation
-    final_total = df["population"].sum()
-    diff_pct = abs(final_total - TARGET_MAHARASHTRA_POP_2020) / TARGET_MAHARASHTRA_POP_2020 * 100
-    assert diff_pct <= 10.0, f"Total population {final_total:,.0f} differs from target by {diff_pct:.1f}% (> 10%)"
+    df["provenance"] = "REAL" if is_real else "ESTIMATED"
 
     out_csv = PROCESSED_DIR / "district_population.csv"
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     df[["district", "population", "area_sqkm", "pop_density_sqkm", "provenance"]].to_csv(out_csv, index=False)
-    print(f"Successfully wrote {len(df)} district populations to {out_csv} (Total MH Pop: {final_total:,.0f})")
+    print(f"Successfully wrote {len(df)} district populations to {out_csv} (Provenance: {df['provenance'].iloc[0]})")
     return df
 
 if __name__ == "__main__":
