@@ -14,7 +14,7 @@ This document lists all public datasets used in the pipeline, their sources, exp
 
 ### B. National Hospital Directory (`hospital_directory (1).csv`)
 - **Source**: Open Government Data Portal India — [data.gov.in](https://data.gov.in/)
-- **Expected Columns**: `State_Name`, `District_Name`, `Hospital_Category`, `Hospital_Care_Type`, `Total_Num_Beds`, `Location_Coordinates`.
+- **Expected Columns**: `State`, `District`, `Hospital_Category`, `Hospital_Care_Type`, `Total_Num_Beds`, `Location_Coordinates`.
 - **Purpose**: Real healthcare facility counts, public/private proportion, and spatial distribution across districts (`REAL`).
 
 ### C. Statewise ICU Beds Audit (`ICU beds count in India - Statewise.csv`)
