@@ -237,6 +237,68 @@ def solve_resource_allocation(
 
     return alloc_df, summary
 
+def evaluate_allocation_plan(plan_df: pd.DataFrame, region_demands: dict, region_stocks: dict, region_risks: dict, distances_df: pd.DataFrame) -> dict:
+    """Evaluate an allocation plan through a shared constraint checker and metric evaluator."""
+    districts = list(region_demands.keys())
+    violations = 0
+    total_km = 0.0
+    total_cost = 0.0
+    
+    transfers_out = {d: {m: 0.0 for m in MEDICINES} for d in districts}
+    transfers_in = {d: {m: 0.0 for m in MEDICINES} for d in districts}
+
+    for _, row in plan_df.iterrows():
+        i, j, m = row["source_region"], row["dest_region"], row["medicine"]
+        qty = float(row["quantity"])
+        d_ij = float(distances_df.loc[i, j]) if (i in distances_df.index and j in distances_df.columns) else float(row.get("distance_km", 0.0))
+        
+        # Check non-negative & self transfer & integrality
+        if qty < 0 or i == j or not qty.is_integer():
+            violations += 1
+        
+        # Check 150 km blood limit
+        if m == "blood_units" and d_ij > 150.0 and qty > 0:
+            violations += 1
+        
+        # Check high risk export
+        if region_risks.get(i, {}).get(m) == "High" and qty > 0:
+            violations += 1
+            
+        transfers_out[i][m] += qty
+        transfers_in[j][m] += qty
+        total_km += d_ij * qty
+        total_cost += float(row.get("cost", qty * d_ij * 15.0))
+
+    # Check safety reserves (source remaining stock >= 0.60 * demand)
+    for i in districts:
+        for m in MEDICINES:
+            max_reserve = max(0.0, region_stocks[i][m] - 0.60 * region_demands[i][m])
+            if region_risks.get(i, {}).get(m) == "High":
+                max_reserve = 0.0
+            if transfers_out[i][m] > max_reserve + 1e-5:
+                violations += 1
+
+    # Compute unmet demand & min coverage after transfers
+    unmet = 0.0
+    coverages = []
+    for j in districts:
+        for m in MEDICINES:
+            stk = region_stocks[j][m]
+            dem = region_demands[j][m]
+            final_stk = stk + transfers_in[j][m] - transfers_out[j][m]
+            unmet += max(0.0, dem - final_stk)
+            if dem > 0:
+                coverages.append(min(1.0, max(0.0, final_stk / dem)))
+
+    min_cov = float(np.min(coverages)) if coverages else 1.0
+    return {
+        "unmet_demand": round(float(unmet), 1),
+        "transport_cost": round(float(total_cost), 2),
+        "total_km": round(float(total_km), 1),
+        "minimum_coverage": round(float(min_cov), 3),
+        "violation_count": int(violations)
+    }
+
 def compare_against_baselines(sim_summary_path: Path = None):
     """Compare OR-Tools SCIP optimization against (1) No redistribution, (2) Proportional sharing, (3) Greedy nearest."""
     if sim_summary_path is None or not sim_summary_path.exists():
@@ -244,7 +306,6 @@ def compare_against_baselines(sim_summary_path: Path = None):
 
     sim_df = pd.read_csv(sim_summary_path)
     distances_df = load_or_compute_distance_matrix()
-
     districts = list(sim_df["district"].unique())
 
     region_demands_p50 = {}
@@ -257,88 +318,107 @@ def compare_against_baselines(sim_summary_path: Path = None):
             region_demands_p50[d] = {}
             region_stocks[d] = {}
             region_risks[d] = {}
-        # Apply disaster surge scaling for flooded districts to test acute deficit allocation
         mult = 2.5 if d in ["Pune", "Kolhapur", "Sangli", "Raigad", "Mumbai"] else 0.8
         region_demands_p50[d][m] = float(row["demand_p50"]) * mult
         region_stocks[d][m] = float(row["available_stock"])
         region_risks[d][m] = "High" if mult > 1.0 else "Low"
 
+    pop_df = pd.read_csv(PROCESSED_DIR / "district_population.csv")
+    pop_weights = dict(zip(pop_df["district"], pop_df["population"] / pop_df["population"].sum()))
+    cols = ["source_region", "dest_region", "medicine", "quantity", "distance_km", "cost", "priority", "confidence"]
+
     # 1. OR-Tools SCIP Optimal Solution
     alloc_df, opt_summary = solve_resource_allocation(
         region_demands_p50, region_stocks, region_risks, distances_df=distances_df
     )
+    res_opt = evaluate_allocation_plan(alloc_df, region_demands_p50, region_stocks, region_risks, distances_df)
 
     # 2. No Redistribution Baseline
-    unmet_no_redist = opt_summary["unmet_demand_before"]
-    min_cov_no_redist = opt_summary["min_coverage_before"]
+    no_redist_df = pd.DataFrame(columns=cols)
+    res_no_redist = evaluate_allocation_plan(no_redist_df, region_demands_p50, region_stocks, region_risks, distances_df)
 
     # 3. Proportional to Population Baseline
-    pop_df = pd.read_csv(PROCESSED_DIR / "district_population.csv")
-    pop_weights = dict(zip(pop_df["district"], pop_df["population"] / pop_df["population"].sum()))
-
-    unmet_prop = 0.0
+    prop_records = []
     for m in MEDICINES:
-        total_surplus = sum(max(0, region_stocks[d][m] - 0.60 * region_demands_p50[d][m]) for d in districts if region_risks[d][m] != "High")
-        for d in districts:
-            alloc_d = total_surplus * pop_weights.get(d, 1.0/35.0)
-            final_stk = region_stocks[d][m] + alloc_d
-            unmet_prop += max(0.0, region_demands_p50[d][m] - final_stk)
+        surplus_map = {d: max(0.0, region_stocks[d][m] - 0.60 * region_demands_p50[d][m]) if region_risks[d][m] != "High" else 0.0 for d in districts}
+        deficit_map = {d: max(0.0, region_demands_p50[d][m] - region_stocks[d][m]) for d in districts}
+        total_surplus = sum(surplus_map.values())
+        total_deficit = sum(deficit_map.values())
+        if total_surplus > 0 and total_deficit > 0:
+            for i in districts:
+                if surplus_map[i] > 0:
+                    for j in districts:
+                        if deficit_map[j] > 0 and i != j:
+                            d_ij = float(distances_df.loc[i, j])
+                            if m == "blood_units" and d_ij > 150.0:
+                                continue
+                            share = (pop_weights.get(j, 1.0/35.0) * deficit_map[j]) / total_deficit
+                            qty = int(min(surplus_map[i], share * total_surplus))
+                            if qty > 0:
+                                surplus_map[i] -= qty
+                                prop_records.append({
+                                    "source_region": i, "dest_region": j, "medicine": m, "quantity": qty,
+                                    "distance_km": d_ij, "cost": qty * d_ij * 15.0, "priority": "MEDIUM", "confidence": 0.85
+                                })
+
+    prop_df = pd.DataFrame(prop_records) if prop_records else pd.DataFrame(columns=cols)
+    res_prop = evaluate_allocation_plan(prop_df, region_demands_p50, region_stocks, region_risks, distances_df)
 
     # 4. Greedy Nearest Surplus Baseline
-    unmet_greedy = 0.0
+    greedy_records = []
     for m in MEDICINES:
-        for d in districts:
-            defic = max(0.0, region_demands_p50[d][m] - region_stocks[d][m])
-            if defic > 0:
-                sorted_dists = distances_df.loc[d].sort_values()
-                got = 0.0
-                for s_d in sorted_dists.index:
-                    if s_d != d and region_risks[s_d][m] != "High":
-                        surp = max(0.0, region_stocks[s_d][m] - 0.60 * region_demands_p50[s_d][m])
-                        take = min(defic - got, surp)
-                        got += take
-                        if got >= defic:
-                            break
-                unmet_greedy += (defic - got)
+        surplus_map = {d: max(0.0, region_stocks[d][m] - 0.60 * region_demands_p50[d][m]) if region_risks[d][m] != "High" else 0.0 for d in districts}
+        deficit_districts = [d for d in districts if region_demands_p50[d][m] > region_stocks[d][m]]
+        deficit_districts.sort(key=lambda d: region_demands_p50[d][m] - region_stocks[d][m], reverse=True)
+        
+        for j in deficit_districts:
+            defic = region_demands_p50[j][m] - region_stocks[j][m]
+            nearest_sources = distances_df.loc[j].sort_values().index
+            for i in nearest_sources:
+                if i != j and surplus_map[i] > 0:
+                    d_ij = float(distances_df.loc[i, j])
+                    if m == "blood_units" and d_ij > 150.0:
+                        continue
+                    take = int(min(defic, surplus_map[i]))
+                    if take > 0:
+                        surplus_map[i] -= take
+                        defic -= take
+                        greedy_records.append({
+                            "source_region": i, "dest_region": j, "medicine": m, "quantity": take,
+                            "distance_km": d_ij, "cost": take * d_ij * 15.0, "priority": "HIGH", "confidence": 0.85
+                        })
+                    if defic <= 0:
+                        break
 
-    benchmarks = {
-        "OR_Tools_SCIP": {
-            "unmet_demand": opt_summary["unmet_demand_after"],
-            "min_coverage": opt_summary["min_coverage_after"],
-            "improvement_vs_no_redist_pct": opt_summary["demand_reduction_pct"]
-        },
-        "No_Redistribution": {
-            "unmet_demand": round(unmet_no_redist, 1),
-            "min_coverage": min_cov_no_redist,
-            "improvement_vs_no_redist_pct": 0.0
-        },
-        "Proportional_Population": {
-            "unmet_demand": round(unmet_prop, 1),
-            "min_coverage": round(min_cov_no_redist * 1.1, 3),
-            "improvement_vs_no_redist_pct": round((unmet_no_redist - unmet_prop) / max(1, unmet_no_redist) * 100, 1)
-        },
-        "Greedy_Nearest": {
-            "unmet_demand": round(unmet_greedy, 1),
-            "min_coverage": round(min_cov_no_redist * 1.25, 3),
-            "improvement_vs_no_redist_pct": round((unmet_no_redist - unmet_greedy) / max(1, unmet_no_redist) * 100, 1)
-        }
-    }
+    greedy_df = pd.DataFrame(greedy_records) if greedy_records else pd.DataFrame(columns=cols)
+    res_greedy = evaluate_allocation_plan(greedy_df, region_demands_p50, region_stocks, region_risks, distances_df)
 
-    print("\n--- Baseline Benchmarking Results ---")
-    for b_name, b_info in benchmarks.items():
-        print(f"  {b_name:25s} | Unmet Demand: {b_info['unmet_demand']:>10.1f} | Min Cov: {b_info['min_coverage']:.3f} | Imp vs Baseline: {b_info['improvement_vs_no_redist_pct']:>5.1f}%")
+    comparison_records = [
+        {"method": "OR-Tools SCIP", **res_opt},
+        {"method": "No Redistribution", **res_no_redist},
+        {"method": "Proportional Population", **res_prop},
+        {"method": "Greedy Nearest", **res_greedy}
+    ]
 
-    # Save allocation plan and summary
+    comp_df = pd.DataFrame(comparison_records)
+    print("\n--- Baseline Comparison Table (Shared Constraint Checker) ---")
+    print(comp_df.to_string(index=False))
+
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    comp_csv = REPORTS_DIR / "baseline_comparison.csv"
+    comp_df.to_csv(comp_csv, index=False)
+    print(f"✓ Saved baseline comparison table to {comp_csv}")
+
     if len(alloc_df) > 0:
         alloc_df.to_csv(REPORTS_DIR / "sample_allocation_plan.csv", index=False)
         print(f"✓ Saved sample allocation plan ({len(alloc_df)} routes) to reports/sample_allocation_plan.csv")
 
     bench_file = REPORTS_DIR / "allocation_summary.json"
+    benchmarks_json = {row["method"]: row for row in comparison_records}
     with open(bench_file, "w") as f:
-        json.dump({"opt_summary": opt_summary, "benchmarks": benchmarks}, f, indent=2)
+        json.dump({"opt_summary": opt_summary, "benchmarks": benchmarks_json}, f, indent=2)
 
-    return benchmarks
+    return benchmarks_json
 
 def main():
     print("==================================================")

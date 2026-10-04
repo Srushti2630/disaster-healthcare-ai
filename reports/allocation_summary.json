@@ -1,7 +1,7 @@
 {
   "opt_summary": {
     "solve_status": "OPTIMAL",
-    "solve_time_ms": 322.72,
+    "solve_time_ms": 300.51,
     "total_transferred_units": 1436781,
     "total_transport_cost": 9377750.55,
     "unmet_demand_before": 1438941.8,
@@ -11,25 +11,37 @@
     "min_coverage_after": 0.772
   },
   "benchmarks": {
-    "OR_Tools_SCIP": {
+    "OR-Tools SCIP": {
+      "method": "OR-Tools SCIP",
       "unmet_demand": 2898.0,
-      "min_coverage": 0.772,
-      "improvement_vs_no_redist_pct": 99.8
+      "transport_cost": 9377750.55,
+      "total_km": 187555010.8,
+      "minimum_coverage": 0.772,
+      "violation_count": 0
     },
-    "No_Redistribution": {
+    "No Redistribution": {
+      "method": "No Redistribution",
       "unmet_demand": 1438941.8,
-      "min_coverage": 0.417,
-      "improvement_vs_no_redist_pct": 0.0
+      "transport_cost": 0.0,
+      "total_km": 0.0,
+      "minimum_coverage": 0.417,
+      "violation_count": 0
     },
-    "Proportional_Population": {
-      "unmet_demand": 441630.4,
-      "min_coverage": 0.459,
-      "improvement_vs_no_redist_pct": 69.3
+    "Proportional Population": {
+      "method": "Proportional Population",
+      "unmet_demand": 348517.5,
+      "transport_cost": 80842564972.71,
+      "total_km": 5389504331.5,
+      "minimum_coverage": 0.512,
+      "violation_count": 0
     },
-    "Greedy_Nearest": {
-      "unmet_demand": 0.0,
-      "min_coverage": 0.521,
-      "improvement_vs_no_redist_pct": 100.0
+    "Greedy Nearest": {
+      "method": "Greedy Nearest",
+      "unmet_demand": 159571.6,
+      "transport_cost": 2660850839.33,
+      "total_km": 177390056.0,
+      "minimum_coverage": 0.6,
+      "violation_count": 0
     }
   }
 }

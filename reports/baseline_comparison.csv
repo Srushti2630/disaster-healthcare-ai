@@ -1,0 +1,5 @@
+method,unmet_demand,transport_cost,total_km,minimum_coverage,violation_count
+OR-Tools SCIP,2898.0,9377750.55,187555010.8,0.772,0
+No Redistribution,1438941.8,0.0,0.0,0.417,0
+Proportional Population,348517.5,80842564972.71,5389504331.5,0.512,0
+Greedy Nearest,159571.6,2660850839.33,177390056.0,0.6,0
