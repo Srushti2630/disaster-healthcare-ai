@@ -28,7 +28,9 @@ flowchart TD
 
     subgraph Simulation Layer [3. Monte-Carlo & ML Surrogate]
         C2 --> E1["WHO IEHK / Sphere Monte-Carlo Engine (2,000 draws)"]
-        E1 --> E2["Fast ML Surrogate Classifier (500 Scenarios, 98.3% Fidelity)"]
+    subgraph Simulation Layer [3. Monte-Carlo & ML Surrogate]
+        C2 --> E1["WHO IEHK / Sphere Monte-Carlo Engine (2,000 draws)"]
+        E1 --> E2["Fast ML Surrogate Classifier (500 Scenarios, 91.3% Fidelity)"]
     end
 
     subgraph Optimization Layer [4. Operations Research Solver]
@@ -70,7 +72,7 @@ The framework was completely transformed from a circular semi-synthetic prototyp
 | **Data Basis** | Formulaic synthetic generator (`synthetic_demand.py`) | Real CRED EM-DAT events, WorldPop rasters, NHP directory, State ICU audit |
 | **Impact Model Target** | Synthetic label generated from input features ($R^2 \approx 0.88$) | Real EM-DAT casualties ($R^2 = 0.2780$, MAE = 2.8812, Spearman $\rho = 0.5199$) |
 | **Prediction Uncertainty** | Fixed $\pm 10\%$ heuristic margin (86.1% empirical coverage) | CQR 90% Nominal ($94.9\%$ empirical test coverage, 95% CI: $[89.7\%, 98.7\%]$) |
-| **Surrogate Classifier** | Single-scenario split ($100\%$ unvalidated accuracy claim) | 500-scenario sampling, split BY SCENARIO ($98.27\%$ held-out fidelity, ECE = 0.0393) |
+| **Surrogate Classifier** | Single-scenario split ($100\%$ unvalidated accuracy claim) | 500-scenario sampling, split BY SCENARIO ($91.28\%$ held-out fidelity under residual $\sigma$) |
 | **Optimizer Benchmarking** | Single scenario vs unconstrained heuristic | 20 Monte-Carlo scenarios evaluated across 5 methods through a shared constraint checker |
 | **Unit Test Coverage** | 4 basic tests | 25 comprehensive pytest unit and integration tests (100% pass rate) |
 
@@ -87,19 +89,19 @@ The framework was completely transformed from a circular semi-synthetic prototyp
 | **XGBoost Regressor** | 3.0908 | 0.1403 | 0.4454 | 24.4% |
 | **Random Forest** | 3.3204 | -0.0174 | 0.3078 | 23.1% |
 
-*Note*: CQR empirical test coverage is **94.9%** for nominal 90% target, indicating **conservative prediction intervals** (median interval width factor $\approx \times 9.96 \times 10^5$). The model supports relative risk ranking across districts/events, not exact magnitude sizing.
+*Note*: CQR empirical test coverage is **94.9%** for nominal 90% target, indicating **conservative prediction intervals** (median interval width factor $\approx \times 9.96 \times 10^5$). Historical disaster backtesting uses Leave-One-Event-Out validation by `DisNo.` across fixed benchmark events (`2005-0409-IND`, `2005-0541-IND`, `2001-0033-IND`, `1993-0074-IND`, `2019-0331-IND`).
 
 ### B. Operations Research Optimizer (20 Monte-Carlo Scenarios Benchmark)
 
 All methods evaluated using the single, unified cost function: $\text{Cost} = \text{unit\_km} \times 15.0 + \text{active\_routes} \times 500.0$.
 
-| Method | Mean Unmet Demand (units) | Mean Cost (Million INR) | Mean Unit-KM | Mean Route-KM | Mean Min Coverage | Rule Violations |
+| Method | Mean Unmet Demand (units) | Mean Cost (Billion INR) | Mean Unit-KM | Mean Route-KM | Mean Min Coverage | Rule Violations |
 |---|---|---|---|---|---|---|
-| **OR-Tools SCIP** | **20,829.1** | **10,494.1** | 699,603,058.3 | 4,008.6 km | **0.578** | **0** |
-| **Greedy Largest Surplus** | 21,216.8 | 16,637.5 | 1,109,162,824.0 | 6,316.5 km | 0.567 | 0 |
-| **Greedy Nearest** | 465,298.7 | 10,573.2 | 704,878,882.3 | 5,103.8 km | 0.558 | 0 |
-| **Proportional Population** | 1,286,335.9 | 30,837.7 | 2,055,840,611.7 | 54,443.5 km | 0.548 | 0 |
-| **No Redistribution** | 2,104,947.3 | 0.0 *(Excluded)* | 0.0 | 0.0 km | 0.496 | 0 |
+| **OR-Tools SCIP** | **248,346,216.7** | **25.17** | 1,677,992,118.3 | **7,148.6 km** | **0.387** | **0** |
+| **Greedy Largest Surplus** | 248,376,227.5 | 36.55 | 2,436,798,987.5 | 10,227.2 km | 0.321 | 0 |
+| **Greedy Nearest** | 248,477,931.4 | 34.71 | 2,313,966,111.0 | 8,878.7 km | 0.321 | 0 |
+| **Proportional Population** | 250,984,266.5 | 18.91 | 1,260,831,552.0 | 60,311.4 km | 0.283 | 0 |
+| **No Redistribution** | 251,923,593.5 | 0.0 *(Excluded)* | 0.0 | 0.0 km | 0.270 | 0 |
 
 ---
 

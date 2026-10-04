@@ -35,7 +35,7 @@ This document prepares project authors for academic viva voce examinations, tech
 **Answer**: The full Monte-Carlo simulation engine executes 2,000 stochastic draws per district $\times$ medicine (7,000+ calculations), taking ~1.2 to 2.5 seconds per scenario. For interactive Streamlit dashboard sliders, 2-second latencies degrade user experience. The Random Forest surrogate classifier is trained on 500 Monte-Carlo scenarios to predict shortage risk levels in $< 5\text{ ms}$, providing instant visual feedback.
 
 ### Q10: How was the surrogate classifier validated to avoid optimistic bias?
-**Answer**: Splitting surrogate training datasets by row causes data leakage because rows from the same disaster scenario share identical hazard parameters. We implemented **scenario-based splitting**: 500 diverse disaster scenarios (varying hazard type, magnitude, epicentre, month) were sampled, and split 80% (400 scenarios) for training and 20% (100 scenarios) for testing by `scenario_id`. On held-out scenarios, the surrogate achieved **98.27% fidelity accuracy**, **0.9538 macro F1**, and **0.0393 Expected Calibration Error (ECE)**.
+**Answer**: Splitting surrogate training datasets by row causes data leakage because rows from the same disaster scenario share identical hazard parameters. We implemented **scenario-based splitting**: 500 diverse disaster scenarios (varying hazard type, magnitude, epicentre, month) were sampled, and split 80% (400 scenarios) for training and 20% (100 scenarios) for testing by `scenario_id`. On held-out scenarios under full residual model uncertainty ($\sigma \approx 3.7186$), the surrogate achieved **91.28% fidelity accuracy**, **0.9085 macro F1**, and **0.0490 Expected Calibration Error (ECE)**.
 
 ### Q11: How does the OR-Tools SCIP Mixed-Integer Programming (MIP) optimization solver work?
 **Answer**: The allocation problem is modeled as a multi-commodity network flow MIP solver over 35 district nodes and 5 medicine classes. Integer decision variables $x_{ijm} \in \mathbb{Z}_{\ge 0}$ represent the quantity of medicine $m$ transferred from source district $i$ to destination district $j$. Slacks $u_{jm} \ge 0$ represent unmet demand, and $\theta \in [0, 1]$ represents minimum regional coverage. The solver minimizes a multi-objective function: $\min \sum w_{\text{unmet}} \cdot c_m \cdot u_{jm} + \sum w_{\text{cost}} \cdot d_{ij} \cdot x_{ijm} - w_{\text{fairness}} \cdot \theta$.
@@ -59,12 +59,12 @@ This document prepares project authors for academic viva voce examinations, tech
 All 5 methods were evaluated through **ONE shared constraint checker** and **ONE unified cost function** ($\text{Cost} = \text{unit\_km} \times 15.0 + \text{active\_routes} \times 500.0$).
 
 ### Q14: What were the key benchmarking results from the 20-scenario optimization study?
-**Answer**: Across 20 scenarios:
-- **OR-Tools SCIP**: Achieved lowest mean unmet demand (**20,829.1 units**), lowest transport cost among active redistribution methods (**10.49B INR**), lowest active route distance (**4,008.6 km**), highest minimum regional coverage (**0.578**), and **0 rule violations**.
-- **Greedy Largest Surplus**: Mean unmet demand 21,216.8 units; transport cost 16.64B INR (58.5% higher cost than OR-Tools).
-- **Greedy Nearest**: Mean unmet demand 465,298.7 units (22x higher unmet demand than OR-Tools).
-- **Proportional Population**: Mean unmet demand 1,286,335.9 units; transport cost 30.84B INR.
-- **No Redistribution**: Mean unmet demand 2,104,947.3 units; cost 0.0 INR (excluded from lowest cost claims).
+**Answer**: Across 20 scenarios under full residual model uncertainty ($\sigma \approx 3.7186$):
+- **OR-Tools SCIP**: Achieved lowest mean unmet demand (**248.35M units**), lowest transport cost among active redistribution methods (**25.17B INR**), lowest active route distance (**7,148.6 km**), highest minimum regional coverage (**0.387**), and **0 rule violations**.
+- **Greedy Largest Surplus**: Mean unmet demand 248.38M units; transport cost 36.55B INR (45.2% higher cost than OR-Tools).
+- **Greedy Nearest**: Mean unmet demand 248.48M units; transport cost 34.71B INR (37.9% higher cost than OR-Tools).
+- **Proportional Population**: Mean unmet demand 250.98M units; transport cost 18.91B INR.
+- **No Redistribution**: Mean unmet demand 251.92M units; cost 0.0 INR (excluded from lowest cost claims).
 
 ### Q15: What is the difference between `unit_km` and `route_km`?
 **Answer**:
