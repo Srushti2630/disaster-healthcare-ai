@@ -53,9 +53,10 @@ Real polygons, raw zonal population, cleaned facilities, estimated capacity, cle
   - `No Redistribution`: Mean unmet demand 2,104,947.3 units; 0 cost (excluded from lowest cost claim).
 - **Visual Tradeoff**: Saved comparison scatter plot to `reports/baseline_comparison_plot.png` and `reports/pareto_sweep.png`.
 
-### Phase 5 App and reporting (needs rework)
-- Exists: 4 pages, hash-chained audit log, PDF/Excel export, map.
-- Problems: trained models are loaded but not used; what-if ignores severity and stock sliders; sidebar report uses a toy two-district plan; audit log gets hard-coded 0.92 / 15.0 values; allocation page reads stale files; centroid scatter instead of choropleth; `use_container_width` deprecated; no SHAP on the app.
+### Phase 5 App and reporting
+- Replaced all 7 deprecated `use_container_width=True` instances in `app.py` with `width="stretch"`.
+- Verified 5-page smoke test (`test_app_smoke_test_all_pages`) passes with zero exceptions.
+
 
 ### Phase 6 Audit and stress tests
 - `bias_table.csv`, `sensitivity_tornado.png`, `stress_test_results.json`, `calibration.png` PREDATE the weather removal and surrogate retrain (generated ~01:30 vs 12:35 on 2026-10-04). Regenerate or delete.

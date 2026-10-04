@@ -141,14 +141,14 @@ if page == "MAP_OVERVIEW":
         )
         fig_map.update_geos(fitbounds="locations", visible=False)
         fig_map.update_layout(margin={"r":0,"t":40,"l":0,"b":0})
-        st.plotly_chart(fig_map, use_container_width=True)
+        st.plotly_chart(fig_map, width="stretch")
 
     st.markdown("---")
     st.subheader("📜 Historical Real-Disaster Event Replay (EM-DAT Benchmark)")
     bt_path = REPORTS_DIR / "historical_backtest.csv"
     if bt_path.exists():
         bt_df = pd.read_csv(bt_path)
-        st.dataframe(bt_df, use_container_width=True)
+        st.dataframe(bt_df, width="stretch")
 
 # -------------------------------------------------------------
 # PAGE 2: INTERACTIVE WHAT-IF SIMULATOR
@@ -168,10 +168,10 @@ elif page == "SIMULATOR":
     st.markdown("---")
     if st.button("Run 2,000-Draw Monte-Carlo Simulation"):
         with st.spinner("Executing 2,000 stochastic draws sampling impact distributions x WHO parameters..."):
-            inputs = {epicentre: {"hazard_type": hazard_type, "affected_mean_log": np.log1p(aff_input), "affected_std_log": 0.40}}
+            inputs = {epicentre: {"hazard_type": hazard_type, "affected_mean_log": np.log1p(aff_input), "affected_std_log": get_impact_sigma("model_prediction")}}
             res_df = run_monte_carlo_district_simulation(inputs, n_draws=2000)
             st.success("Simulation complete!")
-            st.dataframe(res_df[["district", "medicine", "demand_p10", "demand_p50", "demand_p90", "available_stock", "shortage_probability", "risk_level"]], use_container_width=True)
+            st.dataframe(res_df[["district", "medicine", "demand_p10", "demand_p50", "demand_p75", "demand_p90", "available_stock", "shortage_probability", "risk_level"]], width="stretch")
 
 # -------------------------------------------------------------
 # PAGE 3: MULTI-OBJECTIVE ALLOCATION PLAN
@@ -184,7 +184,7 @@ elif page == "ALLOCATION":
     if comp_csv.exists():
         st.subheader("Baseline Performance Comparison (20 Monte-Carlo Scenarios)")
         comp_df = pd.read_csv(comp_csv)
-        st.dataframe(comp_df, use_container_width=True)
+        st.dataframe(comp_df, width="stretch")
 
     plot_img = REPORTS_DIR / "baseline_comparison_plot.png"
     if plot_img.exists():
@@ -195,7 +195,7 @@ elif page == "ALLOCATION":
     if alloc_path.exists():
         st.subheader("Recommended Inter-District Transfers")
         alloc_df = pd.read_csv(alloc_path)
-        st.dataframe(alloc_df, use_container_width=True)
+        st.dataframe(alloc_df, width="stretch")
 
 # -------------------------------------------------------------
 # PAGE 4: GOVERNANCE & TAMPER-EVIDENT AUDIT LOG
@@ -228,7 +228,7 @@ elif page == "GOVERNANCE":
     st.markdown("---")
     st.subheader("Audit Log Chain Entries")
     log_df = init_audit_log()
-    st.dataframe(log_df, use_container_width=True)
+    st.dataframe(log_df, width="stretch")
 
 # -------------------------------------------------------------
 # PAGE 5: DATA SOURCES & PROVENANCE REGISTRY
@@ -248,7 +248,7 @@ elif page == "PROVENANCE":
     ]
 
     prov_df = pd.DataFrame(prov_records)
-    st.dataframe(prov_df, use_container_width=True)
+    st.dataframe(prov_df, width="stretch")
 
     metrics_path = REPORTS_DIR / "metrics.json"
     if metrics_path.exists():
