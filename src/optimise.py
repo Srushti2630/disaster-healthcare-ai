@@ -189,7 +189,11 @@ def solve_resource_allocation(
                 total_transferred += qty
                 total_cost += cost
 
-    alloc_df = pd.DataFrame(allocations)
+    cols = ["source_region", "dest_region", "medicine", "quantity", "distance_km", "cost", "priority", "confidence"]
+    if not allocations:
+        alloc_df = pd.DataFrame(columns=cols)
+    else:
+        alloc_df = pd.DataFrame(allocations)[cols]
 
     # Compute baseline metrics before transfers
     unmet_before = 0.0

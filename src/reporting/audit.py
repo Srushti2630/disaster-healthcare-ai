@@ -12,22 +12,33 @@ AUDIT_LOG_PATH = REPORTS_DIR / "audit_log.csv"
 
 GENESIS_HASH = "0000000000000000000000000000000000000000000000000000000000000000"
 
-def init_audit_log() -> pd.DataFrame:
-    """Initialize audit log CSV with hash chain headers if absent."""
-    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    if not AUDIT_LOG_PATH.exists():
+def init_audit_log(audit_path: Path = AUDIT_LOG_PATH) -> pd.DataFrame:
+    """Initialize audit log CSV with hash chain headers if absent. Renames legacy log files lacking current_hash column."""
+    audit_path = Path(audit_path)
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    if audit_path.exists():
+        try:
+            df = pd.read_csv(audit_path, dtype=str)
+            if "current_hash" not in df.columns:
+                legacy_path = audit_path.parent / f"{audit_path.stem}_legacy.csv"
+                audit_path.rename(legacy_path)
+        except Exception:
+            pass
+
+    if not audit_path.exists():
         df = pd.DataFrame(columns=[
             "timestamp", "user_name", "user_role", "action",
             "reason_code", "confidence", "assumed_pct", "scenario_summary",
             "previous_hash", "current_hash"
         ])
-        df.to_csv(AUDIT_LOG_PATH, index=False)
+        df.to_csv(audit_path, index=False)
         return df
-    return pd.read_csv(AUDIT_LOG_PATH)
+    return pd.read_csv(audit_path, dtype=str)
 
-def get_latest_hash() -> str:
+def get_latest_hash(audit_path: Path = AUDIT_LOG_PATH) -> str:
     """Retrieve the current_hash of the most recent audit log entry."""
-    df = init_audit_log()
+    df = init_audit_log(audit_path)
     if len(df) == 0:
         return GENESIS_HASH
     return str(df.iloc[-1]["current_hash"])
@@ -39,10 +50,12 @@ def log_decision(
     reason_code: str,
     confidence: float,
     assumed_pct: float,
-    scenario_summary: str
+    scenario_summary: str,
+    audit_path: Path = AUDIT_LOG_PATH
 ) -> dict:
     """Append a cryptographically hash-chained entry to the audit log."""
-    prev_hash = get_latest_hash()
+    audit_path = Path(audit_path)
+    prev_hash = get_latest_hash(audit_path)
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     clean_user = user_name.strip() if user_name else "Anonymous Officer"
@@ -65,16 +78,17 @@ def log_decision(
     }
 
     df_entry = pd.DataFrame([entry])
-    df_entry.to_csv(AUDIT_LOG_PATH, mode="a", header=not AUDIT_LOG_PATH.exists(), index=False)
+    df_entry.to_csv(audit_path, mode="a", header=not audit_path.exists(), index=False)
     return entry
 
-def verify_audit_log_integrity() -> tuple[bool, int, list]:
+def verify_audit_log_integrity(audit_path: Path = AUDIT_LOG_PATH) -> tuple[bool, int, list]:
     """Verify cryptographic integrity of the entire audit log hash chain."""
-    if not AUDIT_LOG_PATH.exists():
+    audit_path = Path(audit_path)
+    if not audit_path.exists():
         return True, 0, []
 
-    df = pd.read_csv(AUDIT_LOG_PATH)
-    if len(df) == 0:
+    df = pd.read_csv(audit_path, dtype=str)
+    if len(df) == 0 or "current_hash" not in df.columns:
         return True, 0, []
 
     violations = []
