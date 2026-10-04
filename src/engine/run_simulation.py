@@ -77,8 +77,8 @@ def run_simulation_engine():
     print(f"✓ Completed 2,000 Monte-Carlo draws for {len(sim_df)} district x medicine pairs.")
     print(f"✓ Output saved to {out_sim_csv}")
 
-    # Train fast ML surrogate classifier
-    surrogate_bundle = train_surrogate_classifier(sim_df)
+    # Train fast ML surrogate classifier on 500 diverse Monte-Carlo scenarios
+    surrogate_bundle = train_surrogate_classifier(n_scenarios=500)
 
     # Archive legacy generator
     archive_legacy_synthetic_generator()
