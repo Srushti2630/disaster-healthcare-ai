@@ -1,5 +1,6 @@
-method,unmet_demand,transport_cost,total_km,minimum_coverage,violation_count
-OR-Tools SCIP,2898.0,9377750.55,187555010.8,0.772,0
-No Redistribution,1438941.8,0.0,0.0,0.417,0
-Proportional Population,348517.5,80842564972.71,5389504331.5,0.512,0
-Greedy Nearest,159571.6,2660850839.33,177390056.0,0.6,0
+method,unmet_demand_mean,unmet_demand_std,unmet_demand_min,unmet_demand_max,cost_mean,cost_std,cost_min,cost_max,unit_km_mean,route_km_mean,min_coverage_mean,min_coverage_std,min_coverage_min,min_coverage_max,violations_mean,violations_max
+OR-Tools SCIP,20829.1,34955.4,0.0,123395.6,10494054774.06,21080738851.54,0.0,81331672532.88,699603058.3,4008.6,0.578,0.426,0.039,1.0,0.0,0
+No Redistribution,2104947.3,3577643.8,0.0,12022145.5,0.0,0.0,0.0,0.0,0.0,0.0,0.496,0.401,0.039,1.0,0.0,0
+Proportional Population,1286335.9,2052094.7,0.0,7708539.0,30837668449.99,31698470372.49,0.0,82793217964.61,2055840611.7,54443.5,0.548,0.418,0.039,1.0,0.0,0
+Greedy Nearest,465298.7,762466.8,0.0,2568648.1,10573192834.51,21775336494.66,0.0,82658212567.86,704878882.3,5103.8,0.558,0.416,0.039,1.0,0.0,0
+Greedy Largest Surplus,21216.8,35025.9,0.0,124246.5,16637450485.35,29106147608.51,0.0,106192118370.82,1109162824.0,6316.5,0.567,0.424,0.039,1.0,0.0,0

@@ -22,3 +22,5 @@ models/*.joblib
 # Output logs and temporary files
 *.log
 scratch/
+reports/test_report.pdf
+reports/test_report.xlsx
