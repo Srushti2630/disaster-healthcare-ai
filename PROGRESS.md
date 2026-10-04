@@ -1,64 +1,76 @@
-# Project Progress
+# Project Progress (verified state, 2026-10-04)
 
-## Status Overview
-- Current Stage Completed: **Phase 6 (Fairness & Bias Audit, Tornado Sensitivity Analysis, Operational Stress Testing)**
-- Overall Status: **IN PROGRESS (Phase 6 Complete, Phase 7 Comprehensive Test Suite & Documentation Next)**
+> This file was corrected by hand after a verification pass. Where it disagrees with older notes, `reports/*.json`, `reports/*.csv` or the code, trust the code and re-check.
 
-## Phase Summaries
-### Phase 0: Audit & Hygiene
-- **Baseline Preserved**: Archived old synthetic metrics to `reports/baseline_synthetic_metrics.json`.
-- **Dependencies Cleaned**: Trimmed `requirements.txt` to verified direct dependencies.
-- **Config & Automation**: Created state-agnostic `config.yaml`, `run_all.py`, and `Makefile`.
-- **Repo Hygiene & Data Docs**: Updated `.gitignore` to track data structures while ignoring large raw binaries (>50 MB). Created `data/README.md` and `docs/DATA_NEEDED.md`.
+## Status
+- Pipeline runs end to end: `python run_all.py` (data -> impact model -> Monte-Carlo engine + surrogate -> optimiser -> tests).
+- Tests: **24 / 24 passing** (`tests/test_core.py`, committed work; edit in place only).
+- Integrity fixes DONE: fake weather removed, real district polygons, raw zonal population, optimiser empty-plan, audit-log migration, ast-based synthetic-import test.
+- STILL TO DO: backtest fix, impact-model CIs, Monte-Carlo sigma, optimiser reporting, stale figures, app rewrite, README, viva docs, CI (see "Remaining work").
 
-### Phase 1: Real Data Layer (`src/data/`)
-- **District Boundaries**: Constructed canonical 35 Maharashtra district geometries (`src/data/boundaries.py`).
-- **WorldPop Zonal Population (REAL)**: Calculated 1km raster zonal sum population for 35 districts (`data/processed/district_population.csv`, total MH Pop = 124.5M, error < 0.1%).
-- **National Hospital Directory (REAL)**: Cleaned 4,767 Maharashtra healthcare facilities (`data/processed/district_facilities.csv` and `cleaned_facilities.csv`), classified public/private breakdown and lat/lon coordinate quality.
-- **District Capacity (ESTIMATED)**: Anchored to 11,587 state ICU beds and 145,000 state hospital beds (`data/processed/district_capacity.csv`).
-- **EM-DAT Disaster Events (REAL)**: Processed 810 real EM-DAT India disaster events (`data/processed/emdat_events.csv`, 512 with recorded casualty targets) adhering strictly to a **non-imputation policy**.
-- **Event-Date Weather (ESTIMATED)**: Deleted rng-based weather generation; Open-Meteo archive fetched for live what-if page only (exclusively real data / NaNs on failure, never random). Weather features excluded from impact-model training.
-- **Governance & Audit**: Created machine-readable `data/provenance.yaml` and `reports/data_quality.md`.
+## What is real, estimated, assumed
+| Item | Tag | Notes |
+|---|---|---|
+| EM-DAT events (810; 512 with Total Affected; 136 injured) | REAL | Targets never imputed. Event-level and often MULTI-STATE. |
+| District polygons (35, median 899 vertices) | REAL | Real boundary file in `data/raw/boundaries/`. Old 5-vertex rectangles archived as `*_APPROX.geojson`. |
+| District population | REAL (raw WorldPop zonal sum) | Total 131,936,179 vs ~124.5M official projection, gap 5.97%, reported as a sanity check. No rescaling. |
+| Hospital directory (4,767 Maharashtra facilities) | REAL | `Total_Num_Beds` is unusable (valid for ~0.2% of rows) and is NOT used as a bed count. |
+| District hospital/ICU beds | ESTIMATED | Allocated from state anchors (144,983 beds; ICU anchor 11,587, allocated 11,571). Source of the bed anchor still to be cited. |
+| Medicine consumption parameters | ASSUMED | WHO IEHK 2017 / Sphere, in `config/demand_params.yaml`. |
+| Distances | ASSUMED | Haversine x 1.3 circuity. |
+| Weather | NOT USED in training | The original generator used numpy rng (not real) and was deleted. Open-Meteo is used only for the what-if page (NaN on failure). |
 
-### Phase 2: Real Impact Model & CQR (`src/models/`)
-- **Time-Split Evaluation**: Trained on 512 real EM-DAT events using strict time-based splits (Train <= 2012, Val 2013-2018, Test 2019+) with weather features removed. Ridge ($R^2 = 0.2780$, MAE = 2.8812, Spearman $\rho = 0.5199$) and XGBoost ($R^2 = 0.1403$, MAE = 3.0908, Spearman $\rho = 0.4454$). Removing synthetic/rng weather improved generalization.
-- **Conformalized Quantile Regression (CQR)**: Replaced split conformal with CQR; achieved **94.9% empirical test coverage** for nominal 90% target (was 91.0%).
-- **SHAP Explainability**: Fitted TreeExplainer on XGBoost impact model; exported global summary plot (`reports/shap_summary.png`) and local feature attribution.
-- **Historical Back-Test**: Replayed 4 major real disasters (2005 MH Floods, 2019 Kolhapur Floods, 2001 Bhuj Earthquake, 1993 Latur Earthquake) with 90% CQR prediction intervals (`reports/historical_backtest.csv`).
+## Phase summaries (corrected)
+### Phase 1 Data layer
+Real polygons, raw zonal population, cleaned facilities, estimated capacity, cleaned EM-DAT (non-imputation). Weather excluded from training.
 
-### Phase 3: Transparent Demand & Shortage Engine (`src/engine/`)
-- **Epidemiological Demand Engine**: Implemented WHO IEHK 2017 & Sphere Handbook consumption standards (`config/demand_params.yaml`, tagged `ASSUMED`).
-- **Monte-Carlo Uncertainty Propagation**: Executed 2,000 stochastic draws per district $\times$ medicine, generating P10/P50/P90 demand bands and exact shortage probabilities $P(\text{demand} > \text{surge stock})$.
-- **Fast ML Surrogate**: Trained Random Forest surrogate classifier (`models/shortage_classifier.joblib`) achieving 100% fidelity accuracy and low ECE (0.0085) for instant dashboard slider interaction.
-- **Legacy Cleanup**: Archived `scripts/synthetic_demand.py` to `archive/legacy_synthetic/synthetic_demand.py` with an explicit warning README.
+### Phase 2 Impact model (512 events, time split Train<=2012 / Val 2013-2018 / Test 2019+; N=363/71/78)
+- Median baseline: MAE 3.5717, R2 -0.0952.
+- Ridge: MAE 2.8812, R2 0.2780, Spearman 0.5199, within-half-order-of-magnitude 20.5% (baseline 19.2%).
+- XGBoost: MAE 3.0908, R2 0.1403, Spearman 0.4454. Random forest: R2 -0.0174.
+- CQR 90% nominal gives 94.9% empirical coverage: intervals are CONSERVATIVE, not "better calibrated". Interval widths span several orders of magnitude.
+- The model ranks events but cannot size them; very large events are underestimated by about 30-150x.
+- SHAP is fitted on XGBoost (not the best model); to be justified or changed.
+- **Backtest (reports/historical_backtest.csv) is INVALID as written**: events were matched by year+hazard. "2005 Maharashtra Floods" is DisNo. 2005-0375-IND (Assam/UP/Bihar, no Maharashtra); "2019 Kolhapur-Sangli" is 2019-0331-IND (Bihar, Assam, Maharashtra, Kerala, etc., multi-state); Latur used 1993-0581-IND (525 affected) instead of 1993-0074-IND (9,748 deaths, 30,000 affected). Three events are also inside the training period. Must be rebuilt by DisNo. with leave-one-event-out.
 
-### Phase 4: OR-Tools SCIP Optimization & Benchmarking (`src/optimise.py`)
-- **35 District Node Network**: Upgraded MIP solver to 35 Maharashtra district nodes with real coordinates and $1.3\times$ circuity factor road distance matrix.
-- **Multi-Objective & Constraints**: Implemented safety reserves, integer pack sizes, perishables max transit distance (blood units $\le 150$ km), medicine criticality weighting, and high-risk export prohibitions.
-- **Baseline Benchmarking**: Achieved **99.8% unmet demand reduction** vs No Redistribution baseline, outperforming Proportional Population (69.3%) and Greedy Nearest baselines.
-- **Artifacts**: Exported allocation plan (`reports/sample_allocation_plan.csv`) and Pareto curve summary (`reports/allocation_summary.json`).
+### Phase 3 Demand and shortage engine
+- Monte-Carlo, 2,000 draws per district x medicine; P10/P50/P90 and P(demand > surge stock).
+- Surrogate classifier trained on 500 sampled scenarios, split BY SCENARIO (400/100): held-out fidelity 98.27%, macro F1 0.9538, ECE 0.0393. (The earlier 100% claim came from a single scenario and is invalid.)
+- Known issue: the Monte-Carlo uses a hard-coded affected_std_log = 0.40, far smaller than validation RMSE (~3.4 ln units), so shortage probabilities are overconfident. To be fixed.
+- Rule for allocating event totals to districts is an ASSUMPTION and must be documented.
 
-### Phase 5: Dashboard & Reporting Upgrade (`app.py`, `src/reporting/`)
-- **Interactive Multi-Page Streamlit App**: Built 35-district Plotly risk map, historical disaster event replay, interactive what-if simulator, OR-Tools allocation plan viewer, and Pareto curve explorer.
-- **Cryptographic Audit Log**: Implemented SHA-256 hash chaining (`src/reporting/audit.py`) for human-in-the-loop approval/rejection logging with reviewer roles and reason codes.
-- **One-Click Situation Report Export**: Built automated PDF (`src/reporting/export.py`) and Excel executive situation report generators.
+### Phase 4 Optimiser (20 Monte-Carlo scenarios, one shared constraint checker and cost function)
+- **Shared Evaluator & Unified Cost Function**: Cost = `unit_km * 15.0 + active_routes * 500.0`. Measured both `unit_km` (units $\times$ km) and `route_km` (sum of distinct active route distances).
+- **20-Scenario Benchmark (`reports/baseline_comparison.csv`)**: Evaluated 5 methods (OR-Tools SCIP, No Redistribution, Proportional Population, Greedy Nearest, Greedy Largest Surplus) across 10 P50 and 10 P90 demand scenarios.
+- **Results**:
+  - `OR-Tools SCIP`: Mean unmet demand 20,829.1 units (lowest); Mean transport cost 10.49B INR (lowest among active redistribution methods); Mean route_km 4,008.6 km; Mean min coverage 0.578 (highest); 0 violations.
+  - `Greedy Largest Surplus`: Mean unmet demand 21,216.8 units; Mean transport cost 16.64B INR; Mean route_km 6,316.5 km; 0 violations.
+  - `Greedy Nearest`: Mean unmet demand 465,298.7 units; Mean transport cost 10.57B INR; Mean route_km 5,103.8 km; 0 violations.
+  - `Proportional Population`: Mean unmet demand 1,286,335.9 units; Mean transport cost 30.84B INR; 0 violations.
+  - `No Redistribution`: Mean unmet demand 2,104,947.3 units; 0 cost (excluded from lowest cost claim).
+- **Visual Tradeoff**: Saved comparison scatter plot to `reports/baseline_comparison_plot.png` and `reports/pareto_sweep.png`.
 
-### Phase 6: Fairness Audit, Sensitivity & Stress Testing (`src/audit.py`)
-- **Bias Audit**: Audited prediction interval coverage across hazard types and population tiers (`reports/bias_table.csv`).
-- **Tornado Sensitivity Chart**: Computed Tornado chart (`reports/sensitivity_tornado.png`) measuring impact of ASSUMED epidemiological consumption rates on shortage risk.
-- **Operational Stress Tests**: Verified 3 stress scenarios (missing weather features, unseen hazard types, zero-stock districts) passing with 100% stability (`reports/stress_test_results.json`).
+### Phase 5 App and reporting (needs rework)
+- Exists: 4 pages, hash-chained audit log, PDF/Excel export, map.
+- Problems: trained models are loaded but not used; what-if ignores severity and stock sliders; sidebar report uses a toy two-district plan; audit log gets hard-coded 0.92 / 15.0 values; allocation page reads stale files; centroid scatter instead of choropleth; `use_container_width` deprecated; no SHAP on the app.
 
+### Phase 6 Audit and stress tests
+- `bias_table.csv`, `sensitivity_tornado.png`, `stress_test_results.json`, `calibration.png` PREDATE the weather removal and surrogate retrain (generated ~01:30 vs 12:35 on 2026-10-04). Regenerate or delete.
 
+## Remaining work (do in this order)
+1. Backtest rebuilt by fixed DisNo. list in config.yaml (2005-0409-IND, 2005-0541-IND, 2001-0033-IND, 1993-0074-IND, 2019-0331-IND), leave-one-event-out, scope flag, honest labels.
+2. Impact metrics: bootstrap CIs, per-hazard and single/multi-state coverage, interval width, SHAP on the best model.
+3. Monte-Carlo sigma from validation residuals, P50/P75/P90 planning level, document district allocation rule, re-run sensitivity.
+4. Optimiser reporting and a real Pareto sweep.
+5. Regenerate stale artifacts.
+6. Provenance: cite or tag the bed anchor and reference population.
+7. App rewrite (use models, SHAP, real plan, honest audit log, choropleth, badges).
+8. Hygiene: tests write to tmp_path; keep fpdf2 or reportlab, not both.
+9. Docs: README full rewrite (currently still the OLD synthetic version), docs/VIVA_QA.md, docs/DEMO_SCRIPT.md, CI.
 
-
-
-
-
-## How to Resume / Run Entire System
+## How to run
 ```bash
-# Execute the full pipeline (data build, model training, optimization, and testing)
+source .venv/bin/activate
 python run_all.py
-
-# Launch interactive Streamlit decision dashboard
-.venv/bin/streamlit run app.py
+streamlit run app.py
 ```
