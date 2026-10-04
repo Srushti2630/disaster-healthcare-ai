@@ -1,0 +1,12 @@
+---
+alwaysApply: true
+---
+PROJECT: Disaster Healthcare AI (Maharashtra, 35 districts). Python 3.13 backend logic already exists and is TESTED. Pipeline: `python run_all.py`. Tests: `pytest -q` (25 pass).
+KEY MODULES: src/data/*, src/models/train_impact_model.py (EM-DAT impact model + CQR), src/engine/{demand,monte_carlo}.py (Monte-Carlo demand, get_impact_sigma()), src/models/surrogate.py, src/optimise.py (OR-Tools SCIP, solve_resource_allocation, baseline comparison), src/reporting/{audit,export}.py (SHA-256 hash-chained audit, PDF/Excel), app.py (Streamlit fallback). Artifacts: reports/*.json|csv|png, data/processed/*.csv, models/*.joblib, config.yaml, data/provenance.yaml.
+HARD RULES:
+1. NEVER modify src/models, src/engine, src/data, src/optimise.py, tests/test_core.py, reports/ or models/. New code goes in api/, frontend/, deploy/, tests_api/. If a change in src/ seems needed, stop and ask.
+2. API = thin wrappers around existing functions; no duplicated logic; no invented numbers. Every metric the API returns carries a provenance tag REAL | ESTIMATED | ASSUMED (take from data/provenance.yaml).
+3. Honest framing is mandatory: the impact model RANKS events and underestimates very large ones; costs are a "cost index = unit_km x rate", not currency; district allocation of event totals is ASSUMED; demand parameters are ASSUMED; beds are ESTIMATED.
+4. No secrets in code; config via environment variables (.env.example). Never commit .env, .venv, node_modules, models/*.joblib.
+5. Be economical: read only files you need, no wholesale rewrites, small commits, stop and summarize when a phase's acceptance checks pass.
+STACK: FastAPI + Pydantic v2 + SQLAlchemy 2 (SQLite default, Postgres via DATABASE_URL) + JWT auth (python-jose/pyjwt) ; React + Vite + TypeScript + Tailwind + TanStack Query + React-Leaflet + Recharts ; Docker + docker-compose ; GitHub Actions.

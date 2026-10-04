@@ -264,7 +264,7 @@ def test_no_synthetic_generator_in_live_pipeline():
     import ast
     src_files = [sf for sf in Path("src").rglob("*.py") if "archive" not in sf.parts]
     for sf in src_files:
-        tree = ast.parse(sf.read_text(), filename=str(sf))
+        tree = ast.parse(sf.read_text(encoding="utf-8"), filename=str(sf))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:

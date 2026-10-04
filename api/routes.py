@@ -1,0 +1,102 @@
+from typing import Any, Dict, Optional
+from fastapi import APIRouter, Request, HTTPException, status, Depends
+from fastapi.responses import JSONResponse
+
+from api.models import User
+from api.auth import require_role, rate_limit_simulate
+
+from api.schemas import (
+    DistrictListResponse, MetricsResponse, BacktestResponse, BaselineResponse,
+    ImpactPredictionRequest, ImpactPredictionResponse,
+    SimulationRequest, SimulationResponse,
+    AllocationRequest, AllocationResponse
+)
+from api.services import (
+    get_districts_service, get_metrics_service, get_backtest_service, get_baselines_service,
+    predict_impact_service, simulate_service, allocate_service
+)
+
+router = APIRouter()
+
+# -------------------------------------------------------------
+# HEALTH & READINESS PROBES
+# -------------------------------------------------------------
+@router.get("/health", summary="Liveness Probe", tags=["System"])
+async def health_check() -> Dict[str, str]:
+    return {"status": "ok"}
+
+@router.get("/ready", summary="Readiness Probe", tags=["System"])
+async def readiness_check(request: Request) -> Dict[str, Any]:
+    is_ready = getattr(request.app.state, "ready", False)
+    if not is_ready:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="System is still initializing or missing required models/data."
+        )
+    return {
+        "status": "ready",
+        "artifacts_loaded": {
+            "districts_data": not request.app.state.pop_df.empty,
+            "geojson": len(request.app.state.geojson.get("features", [])) > 0,
+            "impact_model": request.app.state.impact_bundle is not None,
+            "distance_matrix": request.app.state.distances_df is not None
+        }
+    }
+
+# -------------------------------------------------------------
+# DATA & GEO ENDPOINTS
+# -------------------------------------------------------------
+@router.get("/api/districts", response_model=DistrictListResponse, summary="Get 35 Maharashtra Districts", tags=["Data"])
+async def get_districts(request: Request):
+    """Retrieve all 35 Maharashtra districts with population, bed capacities, and facilities with provenance tags."""
+    return get_districts_service(request.app.state)
+
+@router.get("/api/geo/districts", summary="Get Normalised GeoJSON Boundaries", tags=["Data"])
+async def get_district_geojson(request: Request):
+    """Retrieve normalized Maharashtra 35-district GeoJSON polygon boundaries (REAL data)."""
+    geojson = getattr(request.app.state, "geojson", None)
+    if not geojson or not geojson.get("features"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="GeoJSON boundary file not available.")
+    return JSONResponse(content=geojson)
+
+@router.get("/api/metrics", response_model=MetricsResponse, summary="Get Model Benchmark Metrics & Limitations", tags=["Evaluation"])
+async def get_metrics(request: Request):
+    """Retrieve time-split benchmark metrics, CQR interval coverage, surrogate fidelity, and methodology limitations."""
+    return get_metrics_service(request.app.state)
+
+@router.get("/api/backtest", response_model=BacktestResponse, summary="Get Historical Disaster Backtest", tags=["Evaluation"])
+async def get_backtest(request: Request):
+    """Retrieve Leave-One-Event-Out historical replay on real EM-DAT India disasters."""
+    return get_backtest_service(request.app.state)
+
+@router.get("/api/baselines", response_model=BaselineResponse, summary="Get Optimizer 20-Scenario Baseline Comparison", tags=["Evaluation"])
+async def get_baselines(request: Request):
+    """Retrieve 20-scenario optimization comparison across SCIP MIP and 4 heuristic baselines."""
+    return get_baselines_service(request.app.state)
+
+# -------------------------------------------------------------
+# DECISION SUPPORT & SIMULATION ENDPOINTS
+# -------------------------------------------------------------
+@router.post("/api/predict-impact", response_model=ImpactPredictionResponse, summary="Predict Casualty Impact & Interval", tags=["Impact"])
+async def predict_impact(request: Request, body: ImpactPredictionRequest):
+    """Predict point casualty impact and CQR 90% uncertainty prediction interval."""
+    return predict_impact_service(request.app.state, body)
+
+@router.post("/api/simulate", response_model=SimulationResponse, summary="Execute Monte-Carlo Demand Simulation", tags=["Simulation"])
+async def simulate_scenario(
+    request: Request,
+    body: SimulationRequest,
+    current_user: User = Depends(require_role(["officer", "coordinator", "admin"]))
+):
+    """Execute 2,000-draw Monte-Carlo demand simulation and shortage risk classification across districts."""
+    rate_limit_simulate(request)
+    return simulate_service(request.app.state, body)
+
+@router.post("/api/allocate", response_model=AllocationResponse, summary="Solve Resource Allocation MIP", tags=["Optimization"])
+async def allocate_resources(
+    request: Request,
+    body: AllocationRequest,
+    current_user: User = Depends(require_role(["officer", "coordinator", "admin"]))
+):
+    """Solve multi-objective MIP resource allocation problem using Google OR-Tools SCIP solver."""
+    return allocate_service(request.app.state, body)

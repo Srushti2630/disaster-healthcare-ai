@@ -17,7 +17,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 from src.data.boundaries import load_or_create_district_boundaries, MAHARASHTRA_DISTRICTS
-from src.engine.demand import load_demand_params, estimate_district_stocks
+from src.engine.demand import load_demand_params, estimate_district_stocks, get_impact_sigma
 from src.engine.monte_carlo import run_monte_carlo_district_simulation
 from src.optimise import solve_resource_allocation, load_or_compute_distance_matrix
 from src.reporting.audit import log_decision, verify_audit_log_integrity, init_audit_log
