@@ -271,3 +271,15 @@ def test_no_synthetic_generator_in_live_pipeline():
             elif isinstance(node, ast.ImportFrom):
                 if node.module:
                     assert "synthetic_demand" not in node.module, f"Import from synthetic_demand found in {sf}"
+
+def test_app_smoke_test_all_pages():
+    """Smoke test every page of app.py using streamlit.testing.v1.AppTest with zero exceptions."""
+    from streamlit.testing.v1 import AppTest
+    pages = ["MAP_OVERVIEW", "SIMULATOR", "ALLOCATION", "GOVERNANCE", "PROVENANCE"]
+    for p in pages:
+        at = AppTest.from_file("app.py", default_timeout=30)
+        at.run()
+        if len(at.radio) > 0:
+            at.radio[0].set_value(p)
+            at.run()
+        assert not at.exception, f"AppTest raised exception on page {p}: {at.exception}"

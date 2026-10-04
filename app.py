@@ -16,7 +16,7 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 
-from src.data.boundaries import MAHARASHTRA_DISTRICTS
+from src.data.boundaries import load_or_create_district_boundaries, MAHARASHTRA_DISTRICTS
 from src.engine.demand import load_demand_params, estimate_district_stocks
 from src.engine.monte_carlo import run_monte_carlo_district_simulation
 from src.optimise import solve_resource_allocation, load_or_compute_distance_matrix
@@ -72,11 +72,19 @@ st.sidebar.caption(f"Framework Engine {MODEL_VERSION} | Real-Data & SCIP MIP")
 page = st.sidebar.radio(
     "Navigation Modules",
     [
-        "🗺️ Regional Overview & Event Replay",
-        "🔮 Interactive What-If Simulator",
-        "⚖️ Multi-Objective Allocation Plan",
-        "🛡️ Governance & Tamper-Evident Audit Log",
-    ]
+        "MAP_OVERVIEW",
+        "SIMULATOR",
+        "ALLOCATION",
+        "GOVERNANCE",
+        "PROVENANCE",
+    ],
+    format_func=lambda x: {
+        "MAP_OVERVIEW": "🗺️ Regional Overview & Event Replay",
+        "SIMULATOR": "🔮 Interactive What-If Simulator",
+        "ALLOCATION": "⚖️ Multi-Objective Allocation Plan",
+        "GOVERNANCE": "🛡️ Governance & Tamper-Evident Audit Log",
+        "PROVENANCE": "📋 Data Sources & Provenance Registry"
+    }[x]
 )
 
 st.sidebar.markdown("---")
@@ -95,59 +103,59 @@ if st.sidebar.button("Generate Executive PDF & Excel Reports"):
 # -------------------------------------------------------------
 # PAGE 1: REGIONAL OVERVIEW & HISTORICAL REPLAY
 # -------------------------------------------------------------
-if page == "🗺️ Regional Overview & Event Replay":
-    st.title("🗺️ Regional Overview & Historical Disaster Event Replay")
-    st.markdown("Real data provenance: **WorldPop 2020 Grid**, **National Hospital Directory**, **State ICU Audit**, **CRED EM-DAT**.")
+if page == "MAP_OVERVIEW":
+    st.title("🗺️ Regional Overview & Real Polygon Shortage Map")
+    
+    st.info("💡 **Methodological Note**: The impact prediction model supports relative risk ranking across districts/events, not exact casualty magnitudes.")
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("Total Population Covered", f"{pop_df['population'].sum():,}", delta="REAL (WorldPop)")
+        st.metric("Total Population (WorldPop)", f"{pop_df['population'].sum():,}", help="Tag: REAL (1km constrained raster zonal sum)")
     with col2:
-        st.metric("Cleaned Health Facilities", f"{fac_df['total_facilities'].sum():,}", delta="REAL (data.gov.in)")
+        st.metric("Cleaned Health Facilities", f"{fac_df['total_facilities'].sum():,}", help="Tag: REAL (National Health Portal data.gov.in)")
     with col3:
-        st.metric("Total Hospital Beds", f"{cap_df['beds_mid'].sum():,}", delta="ESTIMATED")
+        st.metric("State Total Hospital Beds", f"{cap_df['beds_mid'].sum():,}", help="Tag: ESTIMATED (Scaled from 144,983 state anchor)")
     with col4:
-        st.metric("State ICU Beds Anchor", f"{cap_df['icu_beds_mid'].sum():,}", delta="REAL (Kapoor et al.)")
+        st.metric("State ICU Beds Anchor", f"{cap_df['icu_beds_mid'].sum():,}", help="Tag: REAL (Kapoor et al. 2020 State Audit)")
 
     st.markdown("---")
-    st.subheader("Maharashtra 35-District Shortage Risk Map")
+    st.subheader("Maharashtra 35-District Shortage Risk Choropleth (Real Geometry)")
+
+    gdf = load_or_create_district_boundaries()
+    geojson_data = json.loads(gdf.to_json())
 
     if sim_df is not None:
-        merged_map = pd.merge(cap_df, sim_df[sim_df["medicine"] == "antibiotics"], on="district")
-        merged_map["lat"] = merged_map["district"].apply(lambda d: MAHARASHTRA_DISTRICTS.get(d, {}).get("lat", 19.0))
-        merged_map["lon"] = merged_map["district"].apply(lambda d: MAHARASHTRA_DISTRICTS.get(d, {}).get("lon", 74.5))
+        med_sel = st.selectbox("Select Medicine Class for Risk Map", ["antibiotics", "ors", "iv_fluids", "analgesics", "blood_units"])
+        map_df = pd.merge(cap_df, sim_df[sim_df["medicine"] == med_sel], on="district")
 
-        scatter_fn = getattr(px, "scatter_map", getattr(px, "scatter_mapbox", None))
-        fig_map = scatter_fn(
-            merged_map,
-            lat="lat",
-            lon="lon",
-            size="population",
+        fig_map = px.choropleth(
+            map_df,
+            geojson=geojson_data,
+            locations="district",
+            featureidkey="properties.district",
             color="shortage_probability",
             color_continuous_scale="Reds",
             hover_name="district",
             hover_data=["population", "beds_mid", "shortage_probability", "risk_level"],
-            zoom=6,
-            center={"lat": 19.0, "lon": 76.0},
-            title="District Shortage Risk (Antibiotics) Map"
+            title=f"District Shortage Probability ({med_sel.title()}) [REAL Geometry]"
         )
-        st.plotly_chart(fig_map, width="stretch")
+        fig_map.update_geos(fitbounds="locations", visible=False)
+        fig_map.update_layout(margin={"r":0,"t":40,"l":0,"b":0})
+        st.plotly_chart(fig_map, use_container_width=True)
 
     st.markdown("---")
-    st.subheader("📜 Historical Real-Disaster Event Replay (Held-out Benchmark)")
-    st.caption("Replaying real historical disaster events held out from impact model training, comparing predicted vs actual casualties with 90% CQR intervals.")
-
+    st.subheader("📜 Historical Real-Disaster Event Replay (EM-DAT Benchmark)")
     bt_path = REPORTS_DIR / "historical_backtest.csv"
     if bt_path.exists():
         bt_df = pd.read_csv(bt_path)
-        st.dataframe(bt_df.style.highlight_max(axis=0), width="stretch")
+        st.dataframe(bt_df, use_container_width=True)
 
 # -------------------------------------------------------------
 # PAGE 2: INTERACTIVE WHAT-IF SIMULATOR
 # -------------------------------------------------------------
-elif page == "🔮 Interactive What-If Simulator":
+elif page == "SIMULATOR":
     st.title("🔮 Interactive What-If Scenario Simulator")
-    st.markdown("Simulate disaster scenarios across Maharashtra districts. Fast slider response powered by **Monte-Carlo Surrogate Classifier**.")
+    st.info("💡 **Methodological Note**: Model outputs provide decision support for resource prioritization; demand rates are derived from WHO IEHK / Sphere standards (ASSUMED).")
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -155,59 +163,47 @@ elif page == "🔮 Interactive What-If Simulator":
     with col2:
         epicentre = st.selectbox("Epicentre District", list(MAHARASHTRA_DISTRICTS.keys()), index=24) # Pune
     with col3:
-        severity = st.slider("Disaster Severity Scale", 1, 5, 4)
+        aff_input = st.number_input("Estimated Affected Population", min_value=1000, max_value=500000, value=75000, step=5000)
 
     st.markdown("---")
-    st.subheader("Live Simulation Controls & Surge Stock Tuning")
-
-    col_a, col_b = st.columns(2)
-    with col_a:
-        aff_input = st.number_input("Estimated Affected Population", min_value=1000, max_value=500000, value=75000, step=5000)
-    with col_b:
-        stock_adj = st.slider("Stock Availability Adjustment (%)", 20, 200, 100)
-
-    if st.button("Run Full 2,000-Draw Monte-Carlo Simulation"):
+    if st.button("Run 2,000-Draw Monte-Carlo Simulation"):
         with st.spinner("Executing 2,000 stochastic draws sampling impact distributions x WHO parameters..."):
             inputs = {epicentre: {"hazard_type": hazard_type, "affected_mean_log": np.log1p(aff_input), "affected_std_log": 0.40}}
             res_df = run_monte_carlo_district_simulation(inputs, n_draws=2000)
             st.success("Simulation complete!")
-            st.dataframe(res_df[["district", "medicine", "demand_p10", "demand_p50", "demand_p90", "available_stock", "shortage_probability", "risk_level"]], width="stretch")
+            st.dataframe(res_df[["district", "medicine", "demand_p10", "demand_p50", "demand_p90", "available_stock", "shortage_probability", "risk_level"]], use_container_width=True)
 
 # -------------------------------------------------------------
 # PAGE 3: MULTI-OBJECTIVE ALLOCATION PLAN
 # -------------------------------------------------------------
-elif page == "⚖️ Multi-Objective Allocation Plan":
+elif page == "ALLOCATION":
     st.title("⚖️ Multi-Objective Operations Research Allocation Plan")
     st.markdown("Powered by **Google OR-Tools SCIP Mixed-Integer Programming Solver**.")
 
-    bench_path = REPORTS_DIR / "allocation_summary.json"
-    if bench_path.exists():
-        with open(bench_path, "r") as f:
-            bench_data = json.load(f)
+    comp_csv = REPORTS_DIR / "baseline_comparison.csv"
+    if comp_csv.exists():
+        st.subheader("Baseline Performance Comparison (20 Monte-Carlo Scenarios)")
+        comp_df = pd.read_csv(comp_csv)
+        st.dataframe(comp_df, use_container_width=True)
 
-        st.subheader("Baseline Performance Comparison")
-        bench_df = pd.DataFrame(bench_data.get("benchmarks", {})).T
-        st.dataframe(bench_df, width="stretch")
+    plot_img = REPORTS_DIR / "baseline_comparison_plot.png"
+    if plot_img.exists():
+        st.subheader("Multi-Objective Tradeoff: Unmet Demand vs. Transport Cost")
+        st.image(str(plot_img), caption="Mean Unmet Demand vs Transport Cost across 20 Scenarios (Shared Evaluator)")
 
     alloc_path = REPORTS_DIR / "sample_allocation_plan.csv"
     if alloc_path.exists():
         st.subheader("Recommended Inter-District Transfers")
         alloc_df = pd.read_csv(alloc_path)
-        st.dataframe(alloc_df, width="stretch")
-
-    pareto_img = REPORTS_DIR / "pareto_sweep.png"
-    if pareto_img.exists():
-        st.subheader("Pareto Frontier Trade-off Curves")
-        st.image(str(pareto_img), caption="Unmet Demand vs Transport Cost vs Fairness Trade-offs")
+        st.dataframe(alloc_df, use_container_width=True)
 
 # -------------------------------------------------------------
 # PAGE 4: GOVERNANCE & TAMPER-EVIDENT AUDIT LOG
 # -------------------------------------------------------------
-elif page == "🛡️ Governance & Tamper-Evident Audit Log":
+elif page == "GOVERNANCE":
     st.title("🛡️ Data Governance & Tamper-Evident Cryptographic Audit Log")
     st.markdown("All human officer review actions are cryptographically hash-chained using **SHA-256**.")
 
-    # Audit log verification
     is_valid, n_entries, errs = verify_audit_log_integrity()
     if is_valid:
         st.success(f"✓ Cryptographic Audit Log Verified Intact! ({n_entries} hash-chained records)")
@@ -228,9 +224,36 @@ elif page == "🛡️ Governance & Tamper-Evident Audit Log":
     if st.button("Submit Decision to Audit Log"):
         entry = log_decision(officer_name, officer_role, action_type, reason_code, 0.92, 15.0, "Scenario MH-Flood-Sim")
         st.success(f"Logged entry! Hash: {entry['current_hash'][:16]}...")
-        st.rerun()
 
     st.markdown("---")
     st.subheader("Audit Log Chain Entries")
     log_df = init_audit_log()
-    st.dataframe(log_df, width="stretch")
+    st.dataframe(log_df, use_container_width=True)
+
+# -------------------------------------------------------------
+# PAGE 5: DATA SOURCES & PROVENANCE REGISTRY
+# -------------------------------------------------------------
+elif page == "PROVENANCE":
+    st.title("📋 Data Sources & Provenance Registry")
+    st.markdown("Every table column and metric carries a verified provenance classification.")
+
+    prov_records = [
+        {"Dataset / Field": "EM-DAT Historical Disaster Catalogue", "Tag": "REAL", "Source": "CRED EM-DAT International Disaster Database (1900-2026)", "Details": "810 India disaster events; target casualties non-imputed"},
+        {"Dataset / Field": "WorldPop Population Zonal Sums", "Tag": "REAL", "Source": "WorldPop 2020 1km Constrained Raster Grid", "Details": "Raw zonal sums for 35 districts; Total 131.9M vs 124.5M projection"},
+        {"Dataset / Field": "National Hospital Directory Facilities", "Tag": "REAL", "Source": "National Health Portal India (data.gov.in)", "Details": "4,767 Maharashtra facilities classified public/private"},
+        {"Dataset / Field": "State ICU Bed Capacity Anchor", "Tag": "REAL", "Source": "Kapoor et al. (2020) / NHP State Audit", "Details": "Maharashtra: 2,572 public / 9,015 private / 11,587 total ICU beds"},
+        {"Dataset / Field": "District Hospital Bed Capacity", "Tag": "ESTIMATED", "Source": "State ICU Anchor + Facility Count Allocation", "Details": "Scaled from 144,983 state total bed anchor across 35 districts"},
+        {"Dataset / Field": "Epidemiological Consumption Rates", "Tag": "ASSUMED", "Source": "WHO Interagency Emergency Health Kit (IEHK 2017) & Sphere Norms", "Details": "Daily per-patient medicine consumption rates and epidemic durations"},
+        {"Dataset / Field": "Road Distance Matrix", "Tag": "ASSUMED", "Source": "Haversine Distance x 1.3 Circuity Factor", "Details": "Road transport distance matrix between 35 district centroids"}
+    ]
+
+    prov_df = pd.DataFrame(prov_records)
+    st.dataframe(prov_df, use_container_width=True)
+
+    metrics_path = REPORTS_DIR / "metrics.json"
+    if metrics_path.exists():
+        st.markdown("---")
+        st.subheader("Model Evaluation & Calibration Summary (`reports/metrics.json`)")
+        with open(metrics_path, "r") as f:
+            m_data = json.load(f)
+        st.json(m_data)
