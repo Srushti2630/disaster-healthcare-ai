@@ -223,7 +223,7 @@ def test_audit_log_hash_chain_integrity(tmp_path):
     assert valid, f"Audit log verification failed: {errs}"
     assert n > 0
 
-def test_pdf_and_excel_export_generators():
+def test_pdf_and_excel_export_generators(tmp_path):
     """Verify PDF and Excel situation report generation."""
     sim_path = PROCESSED_DIR / "simulation_summary.csv"
     if not sim_path.exists():
@@ -232,8 +232,8 @@ def test_pdf_and_excel_export_generators():
     sim_df = pd.read_csv(sim_path)
     alloc_df = pd.DataFrame([{"source_region": "Pune", "dest_region": "Sangli", "medicine": "antibiotics", "quantity": 1000, "distance_km": 210.0}])
 
-    pdf_p = generate_pdf_situation_report(sim_df, alloc_df, REPORTS_DIR / "test_report.pdf")
-    excel_p = generate_excel_situation_report(sim_df, alloc_df, REPORTS_DIR / "test_report.xlsx")
+    pdf_p = generate_pdf_situation_report(sim_df, alloc_df, tmp_path / "test_report.pdf")
+    excel_p = generate_excel_situation_report(sim_df, alloc_df, tmp_path / "test_report.xlsx")
 
     assert pdf_p.exists() and pdf_p.stat().st_size > 1000
     assert excel_p.exists() and excel_p.stat().st_size > 1000

@@ -22,4 +22,3 @@ requests>=2.31.0
 statsmodels>=0.14.0
 matplotlib>=3.7.0
 fpdf2>=2.7.0
-reportlab>=4.0.0
