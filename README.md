@@ -1,153 +1,131 @@
-# An Explainable and Uncertainty-Aware AI Framework for Disaster Healthcare Demand Prediction and Multi-Objective Resource Allocation
+# Disaster Healthcare AI: Demand Prediction & Resource Allocation
 
-[![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.65.0-FF4B4B.svg)](https://streamlit.io/)
-[![OR-Tools](https://img.shields.io/badge/Google%20OR--Tools-9.15-orange.svg)](https://developers.google.com/optimization)
-
-A final-year BTech (Computer Engineering) project integrating machine learning, conformal uncertainty quantification, TreeExplainer SHAP explainability, and Mixed-Integer Linear Programming (OR-Tools) into a human-governed decision-support system for disaster medical logistics.
+> **An Explainable and Uncertainty-Aware AI Framework for Disaster Healthcare Demand Prediction and Multi-Objective Resource Allocation**  
+> *Final-Year BTech Engineering Capstone Project* (Python 3.13 | XGBoost | scikit-learn | SHAP | Google OR-Tools SCIP | Streamlit)
 
 ---
 
-## 🏗️ System Architecture
+## 1. Abstract & Executive Summary
+
+Disaster healthcare logistics in developing countries face critical challenges due to sudden casualty surges, uncertain disease propagation, and spatial resource disparities. This project establishes an **end-to-end, reproducible, and verifiable AI decision-support framework** for disaster healthcare demand prediction and inter-district medical resource allocation across Maharashtra's 35 administrative districts.
+
+Unlike legacy synthetic pipelines that evaluate models on deterministic formulas, this framework operates on **real public datasets** (CRED EM-DAT, WorldPop 2020 High-Resolution Grid, National Health Portal India, State ICU Audit) and transparent WHO Interagency Emergency Health Kit (IEHK 2017) and Sphere Handbook epidemiological consumption standards.
 
 ```mermaid
 flowchart TD
-    subgraph Data Layer
-        A1[EM-DAT India Historical Catalogue] -->|Filter Non-Null Targets| B1[Real Disaster Impact Benchmark]
-        A2[Regional Daily Weather 2000-2024] -->|Monthly Aggregation| B2[Regional Climatology]
-        A3[10 Maharashtra Health Regions] -->|Sphere/WHO Assumptions| B3[Semi-Synthetic Demand Simulation]
+    subgraph Data Layer [1. Real Public Data Layer]
+        A1["EM-DAT India Disasters (REAL)"] --> B1["Data Layer (src/data/)"]
+        A2["WorldPop 2020 Grid (REAL)"] --> B1
+        A3["National Health Portal (REAL)"] --> B1
+        A4["State ICU Audit (REAL)"] --> B1
     end
 
-    subgraph Pipeline [Sequential ML & Operations Research Pipeline]
-        B3 --> C1[Group Split by Scenario ID]
-        C1 --> M1["Module 3.1: Disaster Impact Regression<br/>(Affected, Injured, Ill via XGBoost)"]
-        M1 -->|Predicted Impact Only| M2["Module 3.2: 7-Day Demand Forecast<br/>(Split Conformal Uncertainty Intervals)"]
-        M2 -->|Predicted Demand + Stock| M3["Module 3.3: Calibrated Shortage Classifier<br/>(Low / Medium / High Risk)"]
-        M3 --> M4["Module 3.4: SHAP Explainability Engine<br/>(Clinical Admin Decision Rationale)"]
-        M3 -->|Priority + Confidence| OPT["Module 4: Multi-Objective MIP Optimiser<br/>(Google OR-Tools SCIP)"]
+    subgraph Modeling Layer [2. Impact & Uncertainty Models]
+        B1 --> C1["Ridge Impact Model (log1p affected)"]
+        B1 --> C2["Conformalized Quantile Regression (CQR 90%)"]
+        C1 --> D1["TreeExplainer SHAP Attribution"]
     end
 
-    subgraph Governance & Delivery [Decision Support Dashboard]
-        M3 --> DASH["Streamlit Application (app.py)"]
-        M4 --> DASH
-        OPT --> DASH
-        DASH -->|Escalation Banner| UI1[Regional Risk Map & Table]
-        DASH -->|Interactive Sliders| UI2[What-If Surge Simulation]
-        DASH -->|Pareto Weight Sweeps| UI3[Multi-Objective Allocation Plan]
-        UI3 -->|Confidence &lt; 0.60 Gate| REV[Mandatory Human Review]
-        REV -->|Approve / Reject Action| LOG[audit_log.csv Audit Trail]
+    subgraph Simulation Layer [3. Monte-Carlo & ML Surrogate]
+        C2 --> E1["WHO IEHK / Sphere Monte-Carlo Engine (2,000 draws)"]
+        E1 --> E2["Fast ML Surrogate Classifier (500 Scenarios, 98.3% Fidelity)"]
+    end
+
+    subgraph Optimization Layer [4. Operations Research Solver]
+        E1 --> F1["Google OR-Tools SCIP MIP Solver (35 District Nodes)"]
+        F1 --> F2["Shared Evaluator (Safety Reserves, Blood 150km Limit)"]
+    end
+
+    subgraph UI & Governance [5. Decision Support & Audit Log]
+        F2 --> G1["Streamlit Multi-Page Dashboard (app.py)"]
+        G1 --> G2["SHA-256 Hash-Chained Cryptographic Audit Log"]
+        G1 --> G3["One-Click PDF/Excel Situation Reports"]
     end
 ```
 
 ---
 
-## 🚀 Setup & Execution
+## 2. Real Data Provenance & Registry
 
-### 1. Environment Setup
+Every dataset and output figure carries a strict, machine-readable provenance tag (`REAL`, `ESTIMATED`, `ASSUMED` tracked in `data/provenance.yaml`):
+
+| Dataset / Asset | Provenance Tag | Source / Citation | Records / Details |
+|---|---|---|---|
+| **EM-DAT Disaster Catalogue** | `REAL` | CRED EM-DAT International Disaster Database ([public.emdat.be](https://public.emdat.be/)) | 810 India disaster events (512 with recorded targets); casualty targets never imputed. |
+| **WorldPop Population Raster** | `REAL` | WorldPop 2020 1km Constrained Grid ([worldpop.org](https://www.worldpop.org/)) | Raw zonal sum per district using `rasterio.mask`; total 131.9M vs 124.5M projection. |
+| **National Hospital Directory** | `REAL` | Open Government Data Portal India ([data.gov.in](https://data.gov.in/)) | 4,767 Maharashtra facilities classified by public/private mix and coordinate quality. |
+| **State ICU Beds Audit** | `REAL` | National Health Profile / Kapoor et al. (2020) | 11,587 total state ICU beds (2,572 public / 9,015 private). |
+| **District Hospital Bed Capacity** | `ESTIMATED` | Derived from State Bed Anchor + Facility Counts | Allocated from 144,983 state total hospital bed anchor across 35 districts. |
+| **Epidemiological Consumption** | `ASSUMED` | WHO IEHK 2017 & Sphere Handbook Norms | Per-patient daily medicine consumption rates (`config/demand_params.yaml`). |
+| **Distance Matrix** | `ASSUMED` | Haversine Distance $\times$ 1.3 Circuity Factor | Road transport circuity matrix across 35 district centroids. |
+
+---
+
+## 3. Before vs. After Rigor Upgrade
+
+The framework was completely transformed from a circular semi-synthetic prototype into a scientifically rigorous, empirical AI system:
+
+| Aspect | Legacy Semi-Synthetic Prototype | Upgraded Real-Data AI Framework |
+|---|---|---|
+| **Data Basis** | Formulaic synthetic generator (`synthetic_demand.py`) | Real CRED EM-DAT events, WorldPop rasters, NHP directory, State ICU audit |
+| **Impact Model Target** | Synthetic label generated from input features ($R^2 \approx 0.88$) | Real EM-DAT casualties ($R^2 = 0.2780$, MAE = 2.8812, Spearman $\rho = 0.5199$) |
+| **Prediction Uncertainty** | Fixed $\pm 10\%$ heuristic margin (86.1% empirical coverage) | CQR 90% Nominal ($94.9\%$ empirical test coverage, 95% CI: $[89.7\%, 98.7\%]$) |
+| **Surrogate Classifier** | Single-scenario split ($100\%$ unvalidated accuracy claim) | 500-scenario sampling, split BY SCENARIO ($98.27\%$ held-out fidelity, ECE = 0.0393) |
+| **Optimizer Benchmarking** | Single scenario vs unconstrained heuristic | 20 Monte-Carlo scenarios evaluated across 5 methods through a shared constraint checker |
+| **Unit Test Coverage** | 4 basic tests | 25 comprehensive pytest unit and integration tests (100% pass rate) |
+
+---
+
+## 4. Benchmark Results
+
+### A. Impact Prediction Model (Time-Split Test Set $N=78$, 2019+)
+
+| Model | Test MAE (log) | Test $R^2$ (95% CI) | Test Spearman $\rho$ (95% CI) | Order-of-Magnitude Acc ($\le 0.5 \text{ dex}$) |
+|---|---|---|---|---|
+| **Median Baseline** | 3.5717 | -0.0952 | 0.0000 | 19.2% |
+| **Ridge Regression** | **2.8812** | **0.2780** ([0.0787, 0.4331]) | **0.5199** ([0.3657, 0.6472]) | 20.5% |
+| **XGBoost Regressor** | 3.0908 | 0.1403 | 0.4454 | 24.4% |
+| **Random Forest** | 3.3204 | -0.0174 | 0.3078 | 23.1% |
+
+*Note*: CQR empirical test coverage is **94.9%** for nominal 90% target, indicating **conservative prediction intervals** (median interval width factor $\approx \times 9.96 \times 10^5$). The model supports relative risk ranking across districts/events, not exact magnitude sizing.
+
+### B. Operations Research Optimizer (20 Monte-Carlo Scenarios Benchmark)
+
+All methods evaluated using the single, unified cost function: $\text{Cost} = \text{unit\_km} \times 15.0 + \text{active\_routes} \times 500.0$.
+
+| Method | Mean Unmet Demand (units) | Mean Cost (Million INR) | Mean Unit-KM | Mean Route-KM | Mean Min Coverage | Rule Violations |
+|---|---|---|---|---|---|---|
+| **OR-Tools SCIP** | **20,829.1** | **10,494.1** | 699,603,058.3 | 4,008.6 km | **0.578** | **0** |
+| **Greedy Largest Surplus** | 21,216.8 | 16,637.5 | 1,109,162,824.0 | 6,316.5 km | 0.567 | 0 |
+| **Greedy Nearest** | 465,298.7 | 10,573.2 | 704,878,882.3 | 5,103.8 km | 0.558 | 0 |
+| **Proportional Population** | 1,286,335.9 | 30,837.7 | 2,055,840,611.7 | 54,443.5 km | 0.548 | 0 |
+| **No Redistribution** | 2,104,947.3 | 0.0 *(Excluded)* | 0.0 | 0.0 km | 0.496 | 0 |
+
+---
+
+## 5. Methodological Limitations
+
+1. **Weather Features Excluded from Training**: Artificial rng weather degraded time-split generalization and was deleted from training features. Real-time Open-Meteo archive fetching is retained exclusively for live What-If simulation queries.
+2. **Epidemiological Demand Rates (`ASSUMED`)**: Daily consumption rates per patient/injured day are taken from WHO IEHK 2017 and Sphere Handbook standards.
+3. **Hospital Bed Capacities (`ESTIMATED`)**: District bed capacities are allocated from state-level ICU bed audit anchors (11,587 ICU beds / 144,983 total beds) weighted by facility counts.
+4. **Population Raster Sum Gap**: WorldPop 2020 1km constrained raster zonal sum across 35 districts totals 131,936,179, showing a ~5.97% gap to the official 124.5M state government population projection (reported as a raw sanity check without artificial scaling).
+
+---
+
+## 6. Reproducibility & Quickstart
+
 ```bash
-# Clone the repository
-git clone https://github.com/dikshapatil/disaster-healthcare-ai.git
-cd disaster-healthcare-ai
-
-# Create virtual environment and install pinned dependencies
+# 1. Environment Setup
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-```
 
-### 2. End-to-End Pipeline Commands
-```bash
-# Stage 1: Data Cleaning and Climatology Synthesis
-python -m src.clean
+# 2. Run Full Pipeline End-to-End (Data Build -> Training -> Monte-Carlo -> Optimization -> Tests)
+python run_all.py
 
-# Stage 2: Model Training, Conformal Quantiles, SHAP, and Bias Evaluation
-python -m src.train
-
-# Stage 3: OR-Tools MIP Resource Allocation & Pareto Frontier Sweep
-python -m src.optimise
-
-# Stage 4: Run Core Unit Test Suite
+# 3. Execute Unit Test Suite
 pytest -q
 
-# Stage 5: Launch Decision-Support Dashboard
+# 4. Launch Interactive Streamlit Decision Dashboard
 streamlit run app.py
 ```
-
----
-
-## 📊 Empirical Evaluation Results (Real Pipeline Runs)
-
-All numbers reported below were generated directly from actual training and evaluation runs on held-out test scenarios:
-
-### 1. Module 3.1: Disaster Impact Prediction
-*Trained on disaster characteristics (type, intensity, epicentre distance, catchment population, month).*
-- **Real EM-DAT India Historical Data Benchmark** (512 non-null records):
-  - Mean Baseline: MAE = 3.109, $R^2 = -0.004$
-  - Random Forest Regressor: MAE = **2.896**, $R^2 = \mathbf{0.129}$ *(Targets never imputed; reflects noisy real-world reporting).*
-- **Operational Impact Pipeline** (Held-out Test Scenarios):
-  - Trauma Injuries ($R^2$): **0.884** (vs. Mean Baseline $R^2 = -0.002$)
-  - Secondary Illnesses ($R^2$): **0.891** (vs. Mean Baseline $R^2 = -0.001$)
-  - Affected Population ($R^2$): **0.879** (vs. Mean Baseline $R^2 = -0.003$)
-
-### 2. Module 3.2: 7-Day Medicine Demand Forecast
-*Trained exclusively on PREDICTED impact (never ground truth).*
-- **Mean Baseline (per medicine)**: MAE = 487.6 units, $R^2 = 0.582$
-- **XGBoost Regressor**: MAE = **208.5 units**, $R^2 = \mathbf{0.907}$
-- **Conformal Prediction Interval (90% Nominal Confidence)**:
-  - Error margin quantile ($q_{0.90}$): **$\pm 394.2$ units**
-  - Empirical held-out test coverage: **86.1%**
-
-### 3. Module 3.3: Shortage Risk Classification (Low / Medium / High)
-*Target: `risk_level`. Strict leakage exclusion: `demand_7d`, `shortage_qty`, `coverage_ratio`, `affected_pop`, `injured`, `ill` excluded.*
-
-| Model Configuration | Accuracy | Macro F1 | High-Risk Recall | High-Risk Precision | Expected Calibration Error (ECE) |
-| :--- | :---: | :---: | :---: | :---: | :---: |
-| **Logistic Regression Baseline** | 80.3% | 0.744 | 74.2% | 76.1% | 0.0891 |
-| **Calibrated Random Forest (Standard Argmax)** | 90.1% | 0.864 | 88.7% | 88.7% | **0.0177** |
-| **Conservative Decision Rule ($\tau_{\text{high}}=0.37$)** | **90.1%** | **0.862** | **92.4%** | **86.0%** | **0.0177** |
-
-> **Safety Trade-Off**: Tuning the decision rule threshold to $\tau_{\text{high}}=0.37$ elevates High-risk recall from **88.7% to 92.4%**, deliberately prioritizing the prevention of stockouts at the cost of a modest reduction in precision (88.7% $\to$ 86.0%).
-
-### 4. Module 4: OR-Tools Multi-Objective MIP Optimization
-*Evaluated on an acute disaster scenario (Scenario #4: Severity 5 Earthquake).*
-- **Solver**: Google OR-Tools SCIP MIP Solver
-- **Solve Execution Duration**: **33.6 ms** to global optimality
-- **Stock Movement**: 24 inter-regional transfer routes, allocating **584,608 medicine units**
-- **Unmet Demand Reduction**: Reduced from 1,920,883 to 1,336,397 units (**30.4% net reduction**)
-- **Distributional Fairness**: Raised minimum regional coverage from **16.2% to 22.0%** while strictly preserving 60% local safety reserves in source regions.
-
----
-
-## 🛡️ Subgroup Disparity & Bias Audit
-
-Metrics disaggregated across regions and hazards (from `reports/bias_table.csv`):
-
-| Dimension | Subgroup | Samples | High Prevalence | Accuracy | Macro F1 | High Recall | Disparity Flag |
-| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Hazard** | Flood | 1,840 | 11.4% | 93.6% | 0.867 | 93.8% | Clear (NO) |
-| **Hazard** | Earthquake | 1,080 | 22.6% | 87.1% | 0.852 | 91.8% | Clear (NO) |
-| **Hazard** | Cyclone | 1,080 | 23.9% | 87.0% | 0.863 | 92.2% | Clear (NO) |
-| **Region** | Mumbai | 400 | 21.0% | 88.0% | 0.858 | 89.3% | Clear (NO) |
-| **Region** | Pune | 400 | 17.5% | 88.5% | 0.849 | 82.9% | **FLAG (Low High-Recall)** |
-| **Region** | Nagpur | 400 | 16.0% | 88.8% | 0.848 | 84.4% | **FLAG (Low High-Recall)** |
-
-*Under conservative thresholding, Pune and Nagpur exhibited slightly lower High-risk recall (<85%), highlighting geographic disparity under extreme simulated epicentres.*
-
----
-
-## ⚠️ Honest Limitations & Ethical Disclosures
-
-1. **Semi-Synthetic Demand & Inventory Labels**:
-   - Because real-time hospital inventory and daily consumption during Indian disasters are proprietary or unrecorded, demand and stock figures are semi-synthetic.
-   - High validation scores partially reflect the models recovering the underlying epidemiological formulas.
-2. **Simplified Regional Demographics**:
-   - Population and hospital bed figures for the 10 Maharashtra zones are rounded municipal aggregates.
-3. **Historical Disaster Data Sparsity**:
-   - Real EM-DAT India records contain 512 non-null affected casualty records but only 136 injury records. Consequently, the real-world benchmark is constrained in predictive power ($R^2 \approx 0.13$).
-4. **Monthly Weather Aggregation**:
-   - Weather climatology is joined on `(region, month)` rather than instantaneous hour-of-impact telemetry.
-5. **No Direct Hospital EMR Integration**:
-   - The system is designed as a planning prototype; deployment in live clinical operations requires direct hospital EMR/ERP integration.
-6. **Deliberate Scope Boundaries**:
-   - Authentication (JWT), multi-tier databases (SQLite/PostgreSQL), and REST APIs were excluded to focus on algorithmic rigor, explainability, safety bounds, and interactive human-in-the-loop decision-support.
