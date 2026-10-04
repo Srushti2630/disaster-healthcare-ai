@@ -65,11 +65,23 @@ MAHARASHTRA_DISTRICTS = {
 
 # District name alias mapping for fuzzy matching
 DISTRICT_ALIASES = {
+    "ahmadnagar": "Ahmednagar",
+    "ahmednagar": "Ahmednagar",
+    "ahilyanagar": "Ahmednagar",
     "aurangabad": "Aurangabad",
     "chhatrapati sambhajinagar": "Aurangabad",
     "osmanabad": "Osmanabad",
     "dharashiv": "Osmanabad",
+    "bid": "Beed",
+    "beed": "Beed",
+    "buldana": "Buldhana",
+    "buldhana": "Buldhana",
+    "garhchiroli": "Gadchiroli",
+    "gadchiroli": "Gadchiroli",
+    "gondiya": "Gondia",
+    "gondia": "Gondia",
     "raigarh": "Raigad",
+    "raigad": "Raigad",
     "mumbai city": "Mumbai",
     "mumbai suburban": "Mumbai",
     "mumbaisuburban": "Mumbai",
@@ -84,36 +96,88 @@ def normalize_district_name(raw_name: str) -> str:
     if s in DISTRICT_ALIASES:
         return DISTRICT_ALIASES[s]
     for key in MAHARASHTRA_DISTRICTS.keys():
-        if key.lower() in s:
+        if key.lower() == s or key.lower() in s:
             return key
     return str(raw_name).strip().title()
 
+def is_real_boundaries(path: Path) -> bool:
+    """Check if boundary file exists and contains real detailed district polygons."""
+    if not path.exists():
+        return False
+    try:
+        gdf = gpd.read_file(path)
+        if len(gdf) < 35:
+            return False
+        def get_vcount(geom):
+            if geom is None:
+                return 0
+            if geom.geom_type == "Polygon":
+                return len(geom.exterior.coords)
+            elif geom.geom_type == "MultiPolygon":
+                return sum(len(p.exterior.coords) for p in geom.geoms)
+            return 0
+        vcounts = [get_vcount(g) for g in gdf.geometry]
+        return float(np.median(vcounts)) >= 50.0
+    except Exception:
+        return False
+
 def load_or_create_district_boundaries() -> gpd.GeoDataFrame:
     """
-    Load district polygons from GeoJSON/Shapefile if available in data/raw/boundaries/,
-    otherwise construct geometric polygon tessellation around official district centroids.
+    Load district polygons from data/raw/boundaries/maharashtra_districts.geojson if it exists
+    and is real (median polygon vertex count >= 50, at least 35 districts).
+    Normalizes district names using canonical mapping (Aurangabad=Chhatrapati Sambhajinagar,
+    Osmanabad=Dharashiv, Ahmednagar=Ahilyanagar).
+    Falls back to maharashtra_districts_APPROX.geojson if no real file exists.
     """
     BOUNDARIES_DIR.mkdir(parents=True, exist_ok=True)
-    geojson_path = BOUNDARIES_DIR / "maharashtra_districts.geojson"
+    real_path = BOUNDARIES_DIR / "maharashtra_districts.geojson"
+    approx_path = BOUNDARIES_DIR / "maharashtra_districts_APPROX.geojson"
     
-    if geojson_path.exists():
-        gdf = gpd.read_file(geojson_path)
-        gdf["district"] = gdf["district"].apply(normalize_district_name)
+    target_path = None
+    is_real = False
+
+    if is_real_boundaries(real_path):
+        target_path = real_path
+        is_real = True
+    elif is_real_boundaries(approx_path):
+        target_path = approx_path
+        is_real = False
+    elif approx_path.exists():
+        target_path = approx_path
+        is_real = False
+
+    if target_path is not None:
+        gdf = gpd.read_file(target_path)
+        col = "DISTRICT" if "DISTRICT" in gdf.columns else ("district" if "district" in gdf.columns else gdf.columns[0])
+        gdf["district"] = gdf[col].apply(normalize_district_name)
+        
+        # If Palghar is missing (pre-2014 census boundary), create Palghar from Palghar centroid metadata
+        if "Palghar" not in gdf["district"].values:
+            p_info = MAHARASHTRA_DISTRICTS["Palghar"]
+            side_deg = (p_info["area_sqkm"] ** 0.5) / 108.0
+            half = side_deg / 2.0
+            p_poly = box(p_info["lon"] - half, p_info["lat"] - half, p_info["lon"] + half, p_info["lat"] + half)
+            p_gdf = gpd.GeoDataFrame({
+                "district": ["Palghar"],
+                "lat": [p_info["lat"]],
+                "lon": [p_info["lon"]],
+                "area_sqkm": [p_info["area_sqkm"]],
+                "pop_weight": [p_info["pop_weight"]],
+                "geometry": [p_poly]
+            }, crs=gdf.crs)
+            gdf = pd.concat([gdf, p_gdf], ignore_index=True)
+            
+        gdf = gdf.dissolve(by="district", as_index=False)
+        gdf.attrs["is_real"] = is_real
         return gdf
 
     # Construct synthetic Voronoi/bounding box polygons around canonical district centroids
-    points = []
     names = []
     meta = []
-    for d_name, d_info in MAHARASHTRA_DISTRICTS.items():
-        names.append(d_name)
-        points.append(Point(d_info["lon"], d_info["lat"]))
-        meta.append(d_info)
-
-    # Generate bounding boxes of width/height proportional to sqrt(area)
     polys = []
     for d_name, d_info in MAHARASHTRA_DISTRICTS.items():
-        # ~1 deg lat = 111 km, ~1 deg lon = 104 km
+        names.append(d_name)
+        meta.append(d_info)
         side_deg = (d_info["area_sqkm"] ** 0.5) / 108.0
         half = side_deg / 2.0
         lat, lon = d_info["lat"], d_info["lon"]
@@ -129,10 +193,11 @@ def load_or_create_district_boundaries() -> gpd.GeoDataFrame:
         "geometry": polys
     }, crs="EPSG:4326")
 
+    gdf.attrs["is_real"] = False
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-    gdf.to_file(geojson_path, driver="GeoJSON")
+    gdf.to_file(approx_path, driver="GeoJSON")
     return gdf
 
 if __name__ == "__main__":
     gdf = load_or_create_district_boundaries()
-    print(f"Loaded/created {len(gdf)} district boundaries.")
+    print(f"Loaded/created {len(gdf)} district boundaries. Real: {gdf.attrs.get('is_real', False)}")
