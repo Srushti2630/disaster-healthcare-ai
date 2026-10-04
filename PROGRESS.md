@@ -35,19 +35,21 @@ Real polygons, raw zonal population, cleaned facilities, estimated capacity, cle
 
 
 ### Phase 3 Demand and shortage engine
-- Monte-Carlo, 2,000 draws per district x medicine; P10/P50/P90 and P(demand > surge stock).
-- Surrogate classifier trained on 500 sampled scenarios, split BY SCENARIO (400/100): held-out fidelity 98.27%, macro F1 0.9538, ECE 0.0393. (The earlier 100% claim came from a single scenario and is invalid.)
-- Known issue: the Monte-Carlo uses a hard-coded affected_std_log = 0.40, far smaller than validation RMSE (~3.4 ln units), so shortage probabilities are overconfident. To be fixed.
-- Rule for allocating event totals to districts is an ASSUMPTION and must be documented.
+- Centralized `get_impact_sigma(mode)` function in `src/engine/demand.py` retrieving `impact_model_residual_sigma` ($\sigma \approx 3.7186$) from validation residuals stored in `metrics.json`. Reserved 0.40 only for direct observed count mode.
+- Event-to-district population-proportional allocation rule documented as `ASSUMED`.
+- Calculated P10/P50/P75/P90 demand quantiles.
+- Retrained surrogate classifier on 500 scenarios split BY SCENARIO: held-out fidelity accuracy 91.28%, macro F1 0.9085, ECE 0.0490 under full residual uncertainty.
 
 ### Phase 4 Optimiser (20 Monte-Carlo scenarios, one shared constraint checker and cost function)
 - **Shared Evaluator & Unified Cost Function**: Cost = `unit_km * 15.0 + active_routes * 500.0`. Measured both `unit_km` (units $\times$ km) and `route_km` (sum of distinct active route distances).
-- **20-Scenario Benchmark (`reports/baseline_comparison.csv`)**: Evaluated 5 methods (OR-Tools SCIP, No Redistribution, Proportional Population, Greedy Nearest, Greedy Largest Surplus) across 10 P50 and 10 P90 demand scenarios.
+- **20-Scenario Benchmark (`reports/baseline_comparison.csv`)**: Evaluated 5 methods across 10 P50 and 10 P90 demand scenarios under full model residual uncertainty ($\sigma \approx 3.7186$).
 - **Results**:
-  - `OR-Tools SCIP`: Mean unmet demand 20,829.1 units (lowest); Mean transport cost 10.49B INR (lowest among active redistribution methods); Mean route_km 4,008.6 km; Mean min coverage 0.578 (highest); 0 violations.
-  - `Greedy Largest Surplus`: Mean unmet demand 21,216.8 units; Mean transport cost 16.64B INR; Mean route_km 6,316.5 km; 0 violations.
-  - `Greedy Nearest`: Mean unmet demand 465,298.7 units; Mean transport cost 10.57B INR; Mean route_km 5,103.8 km; 0 violations.
-  - `Proportional Population`: Mean unmet demand 1,286,335.9 units; Mean transport cost 30.84B INR; 0 violations.
+  - `OR-Tools SCIP`: Mean unmet demand 248.35M units (lowest); Mean transport cost 25.17B INR (lowest among active redistribution methods); Mean route_km 7,148.6 km; Mean min coverage 0.387 (highest); 0 violations.
+  - `Greedy Largest Surplus`: Mean unmet demand 248.38M units; Mean transport cost 36.55B INR; Mean route_km 10,227.2 km; 0 violations.
+  - `Greedy Nearest`: Mean unmet demand 248.48M units; Mean transport cost 34.71B INR; Mean route_km 8,878.7 km; 0 violations.
+  - `Proportional Population`: Mean unmet demand 250.98M units; Mean transport cost 18.91B INR; 0 violations.
+  - `No Redistribution`: Mean unmet demand 251.92M units; 0 cost.
+
   - `No Redistribution`: Mean unmet demand 2,104,947.3 units; 0 cost (excluded from lowest cost claim).
 - **Visual Tradeoff**: Saved comparison scatter plot to `reports/baseline_comparison_plot.png` and `reports/pareto_sweep.png`.
 

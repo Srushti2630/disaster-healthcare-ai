@@ -35,10 +35,12 @@ def generate_scenario_dataset(n_scenarios: int = 500, random_seed: int = 42) -> 
     """Generate multi-scenario Monte-Carlo simulation dataset across 500+ diverse hazard scenarios."""
     from src.data.boundaries import MAHARASHTRA_DISTRICTS, haversine_distance
     from src.engine.monte_carlo import run_monte_carlo_district_simulation
+    from src.engine.demand import get_impact_sigma
 
     rng = np.random.default_rng(random_seed)
     districts = list(MAHARASHTRA_DISTRICTS.keys())
     coords = {d: (MAHARASHTRA_DISTRICTS[d]["lat"], MAHARASHTRA_DISTRICTS[d]["lon"]) for d in districts}
+    model_sigma = get_impact_sigma("model_prediction")
 
     scenarios_list = []
     print(f"Sampling {n_scenarios} diverse scenarios through Monte-Carlo engine...")
@@ -58,7 +60,7 @@ def generate_scenario_dataset(n_scenarios: int = 500, random_seed: int = 42) -> 
             district_inputs[d] = {
                 "hazard_type": h_type,
                 "affected_mean_log": aff_log,
-                "affected_std_log": 0.40,
+                "affected_std_log": model_sigma,
                 "injured_mean_log": max(2.0, aff_log - 2.5),
                 "injured_std_log": 0.50
             }

@@ -10,6 +10,7 @@ import json
 import pandas as pd
 
 from src.engine.monte_carlo import run_monte_carlo_district_simulation
+from src.engine.demand import get_impact_sigma
 from src.models.surrogate import train_surrogate_classifier
 from src.data.boundaries import MAHARASHTRA_DISTRICTS
 
@@ -44,6 +45,8 @@ def run_simulation_engine():
     print("Running Phase 3 Transparent Demand & Monte-Carlo Engine...")
     print("==================================================")
 
+    model_sigma = get_impact_sigma("model_prediction")
+
     # Prepare default district disaster impact scenario (Flood event across Maharashtra)
     district_impact_inputs = {}
     for idx, d_name in enumerate(MAHARASHTRA_DISTRICTS.keys()):
@@ -58,7 +61,7 @@ def run_simulation_engine():
         district_impact_inputs[d_name] = {
             "hazard_type": "Flood",
             "affected_mean_log": aff_log,
-            "affected_std_log": 0.40,
+            "affected_std_log": model_sigma,
             "injured_mean_log": inj_log,
             "injured_std_log": 0.50
         }

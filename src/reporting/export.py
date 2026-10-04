@@ -151,12 +151,15 @@ def generate_pdf_situation_report(sim_df: pd.DataFrame, alloc_df: pd.DataFrame, 
 
 if __name__ == "__main__":
     from src.engine.monte_carlo import run_monte_carlo_district_simulation
+    from src.engine.demand import get_impact_sigma
     from src.optimise import solve_resource_allocation
     from src.data.boundaries import MAHARASHTRA_DISTRICTS
 
-    test_preds = {d: {"hazard_type": "Flood", "affected_mean_log": 9.0, "affected_std_log": 0.40} for d in MAHARASHTRA_DISTRICTS.keys()}
+    sigma = get_impact_sigma("model_prediction")
+    test_preds = {d: {"hazard_type": "Flood", "affected_mean_log": 9.0, "affected_std_log": sigma} for d in MAHARASHTRA_DISTRICTS.keys()}
     sim_df = run_monte_carlo_district_simulation(test_preds, n_draws=1000)
     alloc_df, _ = solve_resource_allocation({"Pune": {"antibiotics": 5000.0}}, {"Mumbai": {"antibiotics": 10000.0}})
 
     generate_excel_situation_report(sim_df, alloc_df)
     generate_pdf_situation_report(sim_df, alloc_df)
+

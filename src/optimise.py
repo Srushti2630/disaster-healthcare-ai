@@ -388,8 +388,10 @@ def compare_against_baselines(sim_summary_path: Path = None, n_scenarios: int = 
     Saves reports/baseline_comparison.csv and reports/baseline_comparison_plot.png.
     """
     from src.engine.monte_carlo import run_monte_carlo_district_simulation
+    from src.engine.demand import get_impact_sigma
     distances_df = load_or_compute_distance_matrix()
     districts = list(MAHARASHTRA_DISTRICTS.keys())
+    model_sigma = get_impact_sigma("model_prediction")
 
     pop_df = pd.read_csv(PROCESSED_DIR / "district_population.csv")
     pop_weights = dict(zip(pop_df["district"], pop_df["population"] / pop_df["population"].sum()))
@@ -414,7 +416,7 @@ def compare_against_baselines(sim_summary_path: Path = None, n_scenarios: int = 
             district_inputs[d] = {
                 "hazard_type": h_type,
                 "affected_mean_log": aff_log,
-                "affected_std_log": 0.40,
+                "affected_std_log": model_sigma,
                 "injured_mean_log": max(2.0, aff_log - 2.5),
                 "injured_std_log": 0.50
             }

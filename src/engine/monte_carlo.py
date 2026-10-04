@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.engine.demand import load_demand_params, estimate_district_stocks
+from src.engine.demand import load_demand_params, estimate_district_stocks, get_impact_sigma
 from src.data.boundaries import MAHARASHTRA_DISTRICTS
 
 PROCESSED_DIR = Path("data/processed")
@@ -19,7 +19,7 @@ def run_monte_carlo_district_simulation(
     n_draws: int = 2000,
     horizon_days: int = 7,
     random_seed: int = 42
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+) -> pd.DataFrame:
     """
     Run 2,000+ Monte-Carlo draws for each district and medicine class.
     
@@ -27,20 +27,21 @@ def run_monte_carlo_district_simulation(
     """
     rng = np.random.default_rng(seed=random_seed)
     params = load_demand_params()
+    default_sigma = get_impact_sigma("model_prediction")
     
     if district_stocks is None:
         district_stocks = estimate_district_stocks()
 
     summary_records = []
-    mc_draw_records = []
 
     for d_name, imp in district_impact_predictions.items():
         h_type = imp.get("hazard_type", "Flood")
         h_info = params["hazard_multipliers"].get(h_type, {"severity_scaling": 1.0})
         scale = h_info["severity_scaling"]
+        aff_std = imp.get("affected_std_log", default_sigma)
 
         # 1. Sample Log-Casualties
-        aff_log_draws = rng.normal(imp["affected_mean_log"], imp.get("affected_std_log", 0.40), size=n_draws)
+        aff_log_draws = rng.normal(imp["affected_mean_log"], aff_std, size=n_draws)
         inj_log_draws = rng.normal(imp.get("injured_mean_log", imp["affected_mean_log"] - 2.0), imp.get("injured_std_log", 0.50), size=n_draws)
 
         aff_draws = np.expm1(np.clip(aff_log_draws, 0, 16))
@@ -62,6 +63,7 @@ def run_monte_carlo_district_simulation(
 
             p10 = float(np.percentile(demand_draws, 10))
             p50 = float(np.percentile(demand_draws, 50))
+            p75 = float(np.percentile(demand_draws, 75))
             p90 = float(np.percentile(demand_draws, 90))
 
             shortage_draws = demand_draws - avail_stock
@@ -81,6 +83,7 @@ def run_monte_carlo_district_simulation(
                 "horizon_days": horizon_days,
                 "demand_p10": round(p10, 1),
                 "demand_p50": round(p50, 1),
+                "demand_p75": round(p75, 1),
                 "demand_p90": round(p90, 1),
                 "available_stock": round(avail_stock, 1),
                 "expected_shortage_qty": round(max(0.0, p50 - avail_stock), 1),

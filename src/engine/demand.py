@@ -4,6 +4,7 @@ Calculates transparent 7-day and 14-day medicine demand based on WHO IEHK 2017 &
 and estimates baseline hospital surge stocks per district.
 """
 from pathlib import Path
+import json
 import yaml
 import numpy as np
 import pandas as pd
@@ -11,6 +12,41 @@ import pandas as pd
 CONFIG_PATH = Path("config/demand_params.yaml")
 CAPACITY_PATH = Path("data/processed/district_capacity.csv")
 PROCESSED_DIR = Path("data/processed")
+
+# EVENT-TO-DISTRICT ALLOCATION RULE (ASSUMED):
+# State or regional event-level affected totals are allocated to individual districts
+# proportional to raw district population weights: district_affected = total_event_affected * (district_pop / state_pop).
+
+def get_impact_sigma(mode: str = "model_prediction", default: float = 3.40) -> float:
+    """
+    Retrieve residual standard deviation (sigma) for log affected population uncertainty.
+    - 'model_prediction': returns sigma from model validation residuals (stored in metrics.json or models/impact_models.joblib).
+    - 'known_affected_count': returns 0.40 (narrower error band when casualty count is directly observed).
+    """
+    if mode == "known_affected_count":
+        return 0.40
+
+    metrics_path = Path("reports/metrics.json")
+    if metrics_path.exists():
+        try:
+            with open(metrics_path, "r") as f:
+                data = json.load(f)
+                if "impact_model_residual_sigma" in data:
+                    return float(data["impact_model_residual_sigma"])
+        except Exception:
+            pass
+
+    joblib_path = Path("models/impact_models.joblib")
+    if joblib_path.exists():
+        try:
+            import joblib
+            bundle = joblib.load(joblib_path)
+            if "sigma_log" in bundle:
+                return float(bundle["sigma_log"])
+        except Exception:
+            pass
+
+    return default
 
 def load_demand_params():
     """Load epidemiological parameters from config/demand_params.yaml."""
@@ -67,3 +103,5 @@ if __name__ == "__main__":
     print("Sample 7-Day Point Demand (50k affected, 2k injured Flood):", p_dem)
     stocks = estimate_district_stocks()
     print(f"Estimated baseline stock for {len(stocks)} districts.")
+    print("Default model residual sigma:", get_impact_sigma())
+
