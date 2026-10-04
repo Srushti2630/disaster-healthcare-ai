@@ -21,6 +21,8 @@ from scipy.stats import spearmanr, pearsonr
 import xgboost as xgb
 import shap
 
+from src.models.cqr import CQRRegressor
+
 PROCESSED_DIR = Path("data/processed")
 MODELS_DIR = Path("models")
 REPORTS_DIR = Path("reports")
@@ -32,46 +34,6 @@ FEATURE_COLS_NUM = [
 ]
 FEATURE_COLS_CAT = ["disaster_type", "disaster_subtype", "scope"]
 
-class CQRRegressor:
-    """Conformalized Quantile Regression (CQR) for calibrated prediction intervals."""
-
-    def __init__(self, alpha=0.10, n_estimators=100, random_state=42):
-        self.alpha = alpha
-        self.lower_quantile = alpha / 2.0
-        self.upper_quantile = 1.0 - (alpha / 2.0)
-        self.q_low_model = GradientBoostingRegressor(
-            loss="quantile", alpha=self.lower_quantile, n_estimators=n_estimators, random_state=random_state
-        )
-        self.q_high_model = GradientBoostingRegressor(
-            loss="quantile", alpha=self.upper_quantile, n_estimators=n_estimators, random_state=random_state
-        )
-        self.conformal_scores = None
-
-    def fit(self, X_train, y_train, X_calib, y_calib):
-        self.q_low_model.fit(X_train, y_train)
-        self.q_high_model.fit(X_train, y_train)
-
-        # Calibrate error terms on calibration set
-        q_low_calib = self.q_low_model.predict(X_calib)
-        q_high_calib = self.q_high_model.predict(X_calib)
-
-        # Conformal score E_i = max(q_low - y_i, y_i - q_high)
-        scores = np.maximum(q_low_calib - y_calib, y_calib - q_high_calib)
-        self.conformal_scores = np.sort(scores)
-        
-        # Quantile of scores at (1 - alpha)*(1 + 1/n)
-        n = len(y_calib)
-        q_level = np.ceil((1 - self.alpha) * (n + 1)) / n
-        q_level = min(1.0, max(0.0, q_level))
-        self.conformal_margin = np.quantile(self.conformal_scores, q_level)
-
-    def predict_interval(self, X):
-        q_low = self.q_low_model.predict(X)
-        q_high = self.q_high_model.predict(X)
-        
-        lower_bound = q_low - self.conformal_margin
-        upper_bound = q_high + self.conformal_margin
-        return lower_bound, upper_bound
 
 def prepare_impact_data():
     """Load and join EM-DAT events with weather features."""

@@ -1,7 +1,7 @@
 {
   "opt_summary": {
     "solve_status": "OPTIMAL",
-    "solve_time_ms": 296.67,
+    "solve_time_ms": 322.72,
     "total_transferred_units": 1436781,
     "total_transport_cost": 9377750.55,
     "unmet_demand_before": 1438941.8,
