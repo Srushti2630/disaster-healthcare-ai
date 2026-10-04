@@ -143,7 +143,46 @@ def train_and_evaluate_impact_models():
     lower_test, upper_test = cqr.predict_interval(X_test)
     covered = (y_test >= lower_test) & (y_test <= upper_test)
     empirical_coverage_90 = float(np.mean(covered) * 100)
-    print(f"\n✓ Conformalized Quantile Regression (CQR 90% Nominal) Empirical Test Coverage: {empirical_coverage_90:.1f}%")
+    
+    # CQR Interval Width as Multiplicative Factor
+    log_widths = upper_test - lower_test
+    mult_factors = np.exp(log_widths)
+    med_mult_factor = float(np.median(mult_factors))
+
+    # Per-hazard coverage breakdown
+    test_df_cov = test_df.copy()
+    test_df_cov["covered"] = covered
+    test_df_cov["disaster_type"] = test_df_cov["disaster_type"].astype(str)
+    per_hazard_cov = {}
+    for h_type, grp in test_df_cov.groupby("disaster_type"):
+        per_hazard_cov[h_type] = {
+            "sample_count": int(len(grp)),
+            "coverage_pct": round(float(grp["covered"].mean() * 100), 1)
+        }
+
+    # Bootstrap 95% Confidence Intervals (N=78 test set, B=1000)
+    ridge_model = models["Ridge"]
+    y_pred_ridge = ridge_model.predict(X_test)
+    n_test = len(y_test)
+    rng_bs = np.random.default_rng(42)
+    
+    boot_covs = []
+    boot_r2s = []
+    boot_rhos = []
+    for _ in range(1000):
+        b_idx = rng_bs.choice(n_test, size=n_test, replace=True)
+        boot_covs.append(float(np.mean(covered[b_idx]) * 100.0))
+        boot_r2s.append(float(r2_score(y_test[b_idx], y_pred_ridge[b_idx])))
+        r_b, _ = spearmanr(y_test[b_idx], y_pred_ridge[b_idx])
+        boot_rhos.append(float(r_b) if not np.isnan(r_b) else 0.0)
+
+    cov_ci = [round(float(np.percentile(boot_covs, 2.5)), 1), round(float(np.percentile(boot_covs, 97.5)), 1)]
+    r2_ci = [round(float(np.percentile(boot_r2s, 2.5)), 4), round(float(np.percentile(boot_r2s, 97.5)), 4)]
+    rho_ci = [round(float(np.percentile(boot_rhos, 2.5)), 4), round(float(np.percentile(boot_rhos, 97.5)), 4)]
+
+    print(f"\n✓ Conformalized Quantile Regression (CQR 90% Nominal) Empirical Test Coverage: {empirical_coverage_90:.1f}% (95% CI: {cov_ci}%)")
+    print(f"✓ CQR Median Interval Multiplicative Factor: x{med_mult_factor:.2f}")
+    print(f"✓ Ridge Test R²: {metrics['Ridge']['test_r2']:.4f} (95% CI: {r2_ci}) | Spearman ρ: {metrics['Ridge']['test_spearman_rho']:.4f} (95% CI: {rho_ci})")
 
     # Fit best model for SHAP
     best_xgb = models["XGBoost"]
@@ -222,10 +261,18 @@ def train_and_evaluate_impact_models():
         "sample_size": len(df),
         "split_policy": "Time-based (Train <= 2012, Val 2013-2018, Test 2019+)",
         "models_benchmarked": metrics,
+        "ridge_bootstrap_ci": {
+            "r2_95_ci": r2_ci,
+            "spearman_rho_95_ci": rho_ci
+        },
         "conformal_quantile_regression": {
             "nominal_confidence": 0.90,
             "empirical_test_coverage_pct": round(empirical_coverage_90, 1),
-            "conformal_margin_log_units": round(float(cqr.conformal_margin), 4)
+            "coverage_95_ci_pct": cov_ci,
+            "median_interval_multiplicative_factor": round(med_mult_factor, 2),
+            "conformal_margin_log_units": round(float(cqr.conformal_margin), 4),
+            "per_hazard_coverage": per_hazard_cov,
+            "calibration_disclaimer": "Empirical test coverage of 94.9% vs a 90.0% nominal target indicates CONSERVATIVE prediction intervals, NOT better calibration."
         },
         "historical_backtest": backtest_records
     }

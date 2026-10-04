@@ -32,10 +32,56 @@
       "accuracy_within_half_order_of_magnitude_pct": 24.4
     }
   },
+  "ridge_bootstrap_ci": {
+    "r2_95_ci": [
+      0.0787,
+      0.4331
+    ],
+    "spearman_rho_95_ci": [
+      0.3657,
+      0.6472
+    ]
+  },
   "conformal_quantile_regression": {
     "nominal_confidence": 0.9,
     "empirical_test_coverage_pct": 94.9,
-    "conformal_margin_log_units": 0.9314
+    "coverage_95_ci_pct": [
+      89.7,
+      98.7
+    ],
+    "median_interval_multiplicative_factor": 995621.78,
+    "conformal_margin_log_units": 0.9314,
+    "per_hazard_coverage": {
+      "Earthquake": {
+        "sample_count": 1,
+        "coverage_pct": 100.0
+      },
+      "Epidemic": {
+        "sample_count": 2,
+        "coverage_pct": 100.0
+      },
+      "Extreme temperature": {
+        "sample_count": 4,
+        "coverage_pct": 100.0
+      },
+      "Flood": {
+        "sample_count": 34,
+        "coverage_pct": 97.1
+      },
+      "Glacial lake outburst flood": {
+        "sample_count": 2,
+        "coverage_pct": 100.0
+      },
+      "Mass movement (wet)": {
+        "sample_count": 9,
+        "coverage_pct": 88.9
+      },
+      "Storm": {
+        "sample_count": 26,
+        "coverage_pct": 92.3
+      }
+    },
+    "calibration_disclaimer": "Empirical test coverage of 94.9% vs a 90.0% nominal target indicates CONSERVATIVE prediction intervals, NOT better calibration."
   },
   "historical_backtest": [
     {

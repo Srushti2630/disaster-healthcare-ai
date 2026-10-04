@@ -107,14 +107,14 @@ def test_no_casualty_target_leakage_in_features():
     assert len(leakage) == 0, f"Target leakage detected in features: {leakage}"
 
 def test_cqr_conformal_coverage_calibration():
-    """Verify empirical CQR 90% nominal coverage is within 85% - 96% on test set."""
+    """Verify empirical CQR 90% nominal coverage is within 86% - 94% on test set."""
     metrics_path = REPORTS_DIR / "metrics.json"
     assert metrics_path.exists()
     with open(metrics_path, "r") as f:
         data = json.load(f)
 
     cov = data["conformal_quantile_regression"]["empirical_test_coverage_pct"]
-    assert 85.0 <= cov <= 96.0, f"CQR empirical coverage {cov:.1f}% is outside [85%, 96%]"
+    assert 86.0 <= cov <= 94.0, f"CQR empirical coverage {cov:.1f}% is outside [86%, 94%]"
 
 # --- 3. DEMAND & MONTE-CARLO TESTS ---
 
