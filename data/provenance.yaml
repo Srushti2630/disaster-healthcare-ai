@@ -62,8 +62,8 @@ datasets:
 
   event_weather:
     tag: "ESTIMATED"
-    source: "Open-Meteo Historical Archive / Climatological Physics Interpolation"
-    description: "Event-window (-3 to +7 days) precipitation, wind, and temperature extremes."
+    source: "Open-Meteo Historical Archive (Live Fetch Only)"
+    description: "Event-window (-3 to +7 days) precipitation, wind, and temperature extremes. Excluded from impact-model training feature lists to prevent simulated noise bias; fetched real-time for live what-if scenarios."
     columns:
       precip_1d_mm: "ESTIMATED"
       precip_3d_mm: "ESTIMATED"

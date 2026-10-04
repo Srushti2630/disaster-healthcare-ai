@@ -17,12 +17,12 @@
 - **National Hospital Directory (REAL)**: Cleaned 4,767 Maharashtra healthcare facilities (`data/processed/district_facilities.csv` and `cleaned_facilities.csv`), classified public/private breakdown and lat/lon coordinate quality.
 - **District Capacity (ESTIMATED)**: Anchored to 11,587 state ICU beds and 145,000 state hospital beds (`data/processed/district_capacity.csv`).
 - **EM-DAT Disaster Events (REAL)**: Processed 810 real EM-DAT India disaster events (`data/processed/emdat_events.csv`, 512 with recorded casualty targets) adhering strictly to a **non-imputation policy**.
-- **Event-Date Weather (ESTIMATED)**: Extracted 1/3/7-day rolling precipitation, max wind, and temperature extremes for event dates (`data/processed/weather_events.csv`).
+- **Event-Date Weather (ESTIMATED)**: Deleted rng-based weather generation; Open-Meteo archive fetched for live what-if page only (exclusively real data / NaNs on failure, never random). Weather features excluded from impact-model training.
 - **Governance & Audit**: Created machine-readable `data/provenance.yaml` and `reports/data_quality.md`.
 
 ### Phase 2: Real Impact Model & CQR (`src/models/`)
-- **Time-Split Evaluation**: Trained on 512 real EM-DAT events using strict time-based splits (Train <= 2012, Val 2013-2018, Test 2019+). Ridge ($R^2 = 0.262$, MAE = 2.900, Spearman $\rho = 0.504$) and XGBoost ($R^2 = 0.155$, MAE = 3.136, Spearman $\rho = 0.442$) beat Median Baseline (MAE = 3.572).
-- **Conformalized Quantile Regression (CQR)**: Replaced split conformal with CQR; achieved **91.0% empirical test coverage** for nominal 90% target.
+- **Time-Split Evaluation**: Trained on 512 real EM-DAT events using strict time-based splits (Train <= 2012, Val 2013-2018, Test 2019+) with weather features removed. Ridge ($R^2 = 0.2780$, MAE = 2.8812, Spearman $\rho = 0.5199$) and XGBoost ($R^2 = 0.1403$, MAE = 3.0908, Spearman $\rho = 0.4454$). Removing synthetic/rng weather improved generalization.
+- **Conformalized Quantile Regression (CQR)**: Replaced split conformal with CQR; achieved **94.9% empirical test coverage** for nominal 90% target (was 91.0%).
 - **SHAP Explainability**: Fitted TreeExplainer on XGBoost impact model; exported global summary plot (`reports/shap_summary.png`) and local feature attribution.
 - **Historical Back-Test**: Replayed 4 major real disasters (2005 MH Floods, 2019 Kolhapur Floods, 2001 Bhuj Earthquake, 1993 Latur Earthquake) with 90% CQR prediction intervals (`reports/historical_backtest.csv`).
 

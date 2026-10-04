@@ -11,7 +11,6 @@ from src.data.population import compute_district_populations
 from src.data.facilities import clean_hospital_directory
 from src.data.capacity import compute_district_capacity
 from src.data.disasters import clean_emdat_disasters
-from src.data.weather import fetch_or_generate_event_weather
 
 REPORTS_DIR = Path("reports")
 PROCESSED_DIR = Path("data/processed")
@@ -41,15 +40,11 @@ def build_real_data_layer():
     events_df = clean_emdat_disasters()
     print(f"✓ Processed {len(events_df)} real EM-DAT India disaster events ({events_df['total_affected'].notna().sum()} with casualty targets).")
 
-    # 6. Event-Date Weather Features
-    weather_df = fetch_or_generate_event_weather()
-    print(f"✓ Extracted event weather features for {len(weather_df)} event dates.")
-
     # Write data quality report
-    write_data_quality_report(pop_df, mh_clean_fac, dist_fac, cap_df, events_df, weather_df)
+    write_data_quality_report(pop_df, mh_clean_fac, dist_fac, cap_df, events_df)
     print("\nPhase 1 Real Data Layer built successfully!")
 
-def write_data_quality_report(pop_df, mh_fac, dist_fac, cap_df, events_df, weather_df):
+def write_data_quality_report(pop_df, mh_fac, dist_fac, cap_df, events_df):
     """Generate comprehensive data quality report in reports/data_quality.md."""
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     report_path = REPORTS_DIR / "data_quality.md"

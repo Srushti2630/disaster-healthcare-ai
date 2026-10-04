@@ -1,8 +1,7 @@
 """
-Event-date weather feature extraction module.
-Fetches or generates 1/3/7-day rolling precipitation, wind speed, and temperature extremes
-for real EM-DAT disaster event date windows (-3 to +7 days).
-Outputs data/interim/weather_events.parquet and data/processed/weather_events.csv.
+Real Open-Meteo weather fetching module for interactive What-If simulation.
+Fetches historical/real-time weather archive data from Open-Meteo API.
+Failed fetches remain NaN (no random generation).
 """
 from pathlib import Path
 import numpy as np
@@ -12,80 +11,54 @@ import requests
 PROCESSED_DIR = Path("data/processed")
 INTERIM_DIR = Path("data/interim")
 
-def fetch_or_generate_event_weather() -> pd.DataFrame:
-    """Extract event-date weather features for historical EM-DAT events."""
-    events_path = PROCESSED_DIR / "emdat_events.csv"
-    if not events_path.exists():
-        raise FileNotFoundError("Missing emdat_events.csv in data/processed/")
-
-    events_df = pd.read_csv(events_path)
+def fetch_open_meteo_archive(lat: float, lon: float, start_date: str, end_date: str) -> dict:
+    """
+    Fetch real historical weather telemetry from Open-Meteo Archive API.
+    Returns weather indicators dict or NaNs if fetch fails/offline. Failed fetches stay NaN, NEVER random.
+    """
+    url = "https://archive-api.open-meteo.com/v1/archive"
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "start_date": start_date,
+        "end_date": end_date,
+        "daily": ["precipitation_sum", "wind_speed_10m_max", "temperature_2m_max", "temperature_2m_min"],
+        "timezone": "Asia/Kolkata"
+    }
     
-    # Generate realistic physics-grounded weather features for each event date window
-    rng = np.random.default_rng(seed=42)
-    records = []
+    try:
+        resp = requests.get(url, params=params, timeout=5.0)
+        if resp.status_code == 200:
+            data = resp.json().get("daily", {})
+            precip = data.get("precipitation_sum", [np.nan])
+            wind = data.get("wind_speed_10m_max", [np.nan])
+            temp_max = data.get("temperature_2m_max", [np.nan])
+            temp_min = data.get("temperature_2m_min", [np.nan])
 
-    for _, r in events_df.iterrows():
-        e_id = r["event_id"]
-        d_type = str(r["disaster_type"]).lower()
-        m = int(r["start_month"])
-        
-        # Hazard-specific event-date weather simulation matching meteorology
-        if "flood" in d_type:
-            rain_1d = float(rng.gamma(shape=3.0, scale=35.0))
-            rain_3d = rain_1d + float(rng.gamma(shape=2.5, scale=40.0))
-            rain_7d = rain_3d + float(rng.gamma(shape=2.0, scale=30.0))
-            wind_max = float(rng.normal(28.0, 8.0))
-            t_max = float(rng.normal(31.0, 2.0))
-            t_min = t_max - float(rng.uniform(4.0, 7.0))
-        elif "storm" in d_type or "cyclone" in d_type:
-            rain_1d = float(rng.gamma(shape=2.5, scale=45.0))
-            rain_3d = rain_1d + float(rng.gamma(shape=2.0, scale=50.0))
-            rain_7d = rain_3d + float(rng.gamma(shape=1.5, scale=30.0))
-            wind_max = float(rng.gamma(shape=4.0, scale=25.0))  # Extreme wind peaks
-            t_max = float(rng.normal(29.0, 2.5))
-            t_min = t_max - float(rng.uniform(3.0, 6.0))
-        elif "heat" in d_type or "temperature" in d_type:
-            rain_1d = 0.0
-            rain_3d = 0.0
-            rain_7d = 0.0
-            wind_max = float(rng.normal(15.0, 4.0))
-            t_max = float(rng.normal(43.5, 2.5))  # Extreme heatwave
-            t_min = t_max - float(rng.uniform(10.0, 14.0))
-        else:  # Earthquake, Epidemic, Drought
-            rain_1d = float(rng.gamma(shape=1.0, scale=5.0)) if 6 <= m <= 9 else 0.0
-            rain_3d = rain_1d * float(rng.uniform(1.2, 2.5))
-            rain_7d = rain_3d * float(rng.uniform(1.2, 2.0))
-            wind_max = float(rng.normal(18.0, 5.0))
-            t_max = float(rng.normal(32.0, 3.0))
-            t_min = t_max - float(rng.uniform(6.0, 10.0))
+            precip_clean = [p for p in precip if p is not None and not np.isnan(p)]
+            wind_clean = [w for w in wind if w is not None and not np.isnan(w)]
+            tmax_clean = [t for t in temp_max if t is not None and not np.isnan(t)]
+            tmin_clean = [t for t in temp_min if t is not None and not np.isnan(t)]
 
-        records.append({
-            "event_id": e_id,
-            "event_date": r["event_date"],
-            "disaster_type": r["disaster_type"],
-            "precip_1d_mm": round(max(0.0, rain_1d), 1),
-            "precip_3d_mm": round(max(0.0, rain_3d), 1),
-            "precip_7d_mm": round(max(0.0, rain_7d), 1),
-            "wind_max_kmh": round(max(0.0, wind_max), 1),
-            "temp_max_c": round(t_max, 1),
-            "temp_min_c": round(t_min, 1),
-            "provenance": "ESTIMATED"
-        })
+            return {
+                "precip_sum_mm": float(np.sum(precip_clean)) if precip_clean else np.nan,
+                "wind_max_kmh": float(np.max(wind_clean)) if wind_clean else np.nan,
+                "temp_max_c": float(np.max(tmax_clean)) if tmax_clean else np.nan,
+                "temp_min_c": float(np.min(tmin_clean)) if tmin_clean else np.nan,
+                "status": "SUCCESS_OPEN_METEO"
+            }
+    except Exception as e:
+        pass
 
-    weather_df = pd.DataFrame(records)
-
-    INTERIM_DIR.mkdir(parents=True, exist_ok=True)
-    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-
-    parquet_out = INTERIM_DIR / "weather_events.parquet"
-    csv_out = PROCESSED_DIR / "weather_events.csv"
-
-    weather_df.to_parquet(parquet_out, index=False)
-    weather_df.to_csv(csv_out, index=False)
-
-    print(f"Generated event-date weather features for {len(weather_df)} events.")
-    print(f"Cached at {parquet_out} and {csv_out}")
-    return weather_df
+    # Failed fetches stay NaN
+    return {
+        "precip_sum_mm": np.nan,
+        "wind_max_kmh": np.nan,
+        "temp_max_c": np.nan,
+        "temp_min_c": np.nan,
+        "status": "FAILED_FETCH_STAYS_NAN"
+    }
 
 if __name__ == "__main__":
-    fetch_or_generate_event_weather()
+    res = fetch_open_meteo_archive(18.52, 73.85, "2024-07-01", "2024-07-07")
+    print("Open-Meteo Fetch Test Result:", res)

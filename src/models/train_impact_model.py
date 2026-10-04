@@ -28,22 +28,18 @@ MODELS_DIR = Path("models")
 REPORTS_DIR = Path("reports")
 
 FEATURE_COLS_NUM = [
-    "magnitude", "start_year", "start_month", "decade",
-    "precip_1d_mm", "precip_3d_mm", "precip_7d_mm",
-    "wind_max_kmh", "temp_max_c"
+    "magnitude", "start_year", "start_month", "decade"
 ]
 FEATURE_COLS_CAT = ["disaster_type", "disaster_subtype", "scope"]
 
 
 def prepare_impact_data():
-    """Load and join EM-DAT events with weather features."""
+    """Load EM-DAT disaster events catalogue (without weather features)."""
     events_path = PROCESSED_DIR / "emdat_events.csv"
-    weather_path = PROCESSED_DIR / "weather_events.csv"
+    if not events_path.exists():
+        raise FileNotFoundError(f"Missing {events_path}")
 
-    events = pd.read_csv(events_path)
-    weather = pd.read_csv(weather_path)
-
-    df = pd.merge(events, weather[["event_id", "precip_1d_mm", "precip_3d_mm", "precip_7d_mm", "wind_max_kmh", "temp_max_c"]], on="event_id", how="left")
+    df = pd.read_csv(events_path)
 
     # Filter non-null total_affected for training target
     valid_df = df[df["total_affected"].notna() & (df["total_affected"] > 0)].copy().reset_index(drop=True)

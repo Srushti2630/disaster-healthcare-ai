@@ -11,31 +11,31 @@
       "accuracy_within_half_order_of_magnitude_pct": 19.2
     },
     "Ridge": {
-      "test_mae_log": 2.8998,
-      "test_rmse_log": 3.4557,
-      "test_r2": 0.2621,
-      "test_spearman_rho": 0.5039,
-      "accuracy_within_half_order_of_magnitude_pct": 24.4
+      "test_mae_log": 2.8812,
+      "test_rmse_log": 3.4183,
+      "test_r2": 0.278,
+      "test_spearman_rho": 0.5199,
+      "accuracy_within_half_order_of_magnitude_pct": 20.5
     },
     "Random_Forest": {
-      "test_mae_log": 3.1952,
-      "test_rmse_log": 3.7719,
-      "test_r2": 0.1209,
-      "test_spearman_rho": 0.3609,
-      "accuracy_within_half_order_of_magnitude_pct": 15.4
+      "test_mae_log": 3.3204,
+      "test_rmse_log": 4.0578,
+      "test_r2": -0.0174,
+      "test_spearman_rho": 0.3078,
+      "accuracy_within_half_order_of_magnitude_pct": 23.1
     },
     "XGBoost": {
-      "test_mae_log": 3.1361,
-      "test_rmse_log": 3.6987,
-      "test_r2": 0.1547,
-      "test_spearman_rho": 0.4417,
-      "accuracy_within_half_order_of_magnitude_pct": 15.4
+      "test_mae_log": 3.0908,
+      "test_rmse_log": 3.73,
+      "test_r2": 0.1403,
+      "test_spearman_rho": 0.4454,
+      "accuracy_within_half_order_of_magnitude_pct": 24.4
     }
   },
   "conformal_quantile_regression": {
     "nominal_confidence": 0.9,
-    "empirical_test_coverage_pct": 91.0,
-    "conformal_margin_log_units": 1.3308
+    "empirical_test_coverage_pct": 94.9,
+    "conformal_margin_log_units": 0.9314
   },
   "historical_backtest": [
     {
@@ -43,9 +43,9 @@
       "year": 2005,
       "disaster_type": "Flood",
       "actual_affected": 1908000,
-      "predicted_affected_mid": 62701,
-      "predicted_affected_p10": 9,
-      "predicted_affected_p90": 24809094,
+      "predicted_affected_mid": 36679,
+      "predicted_affected_p10": 12,
+      "predicted_affected_p90": 14950327,
       "interval_covers_actual": true,
       "provenance": "REAL_BACKTEST"
     },
@@ -54,9 +54,9 @@
       "year": 2019,
       "disaster_type": "Flood",
       "actual_affected": 3000000,
-      "predicted_affected_mid": 81232,
-      "predicted_affected_p10": 9,
-      "predicted_affected_p90": 20931231,
+      "predicted_affected_mid": 19111,
+      "predicted_affected_p10": 12,
+      "predicted_affected_p90": 39160052,
       "interval_covers_actual": true,
       "provenance": "REAL_BACKTEST"
     },
@@ -65,9 +65,9 @@
       "year": 2001,
       "disaster_type": "Earthquake",
       "actual_affected": 6321812,
-      "predicted_affected_mid": 201090,
-      "predicted_affected_p10": 8,
-      "predicted_affected_p90": 23681139,
+      "predicted_affected_mid": 90651,
+      "predicted_affected_p10": 11,
+      "predicted_affected_p90": 15165804,
       "interval_covers_actual": true,
       "provenance": "REAL_BACKTEST"
     },
@@ -76,9 +76,9 @@
       "year": 1993,
       "disaster_type": "Earthquake",
       "actual_affected": 525,
-      "predicted_affected_mid": 811,
-      "predicted_affected_p10": 72,
-      "predicted_affected_p90": 10182075,
+      "predicted_affected_mid": 1048,
+      "predicted_affected_p10": 19,
+      "predicted_affected_p90": 31314297,
       "interval_covers_actual": true,
       "provenance": "REAL_BACKTEST"
     }
