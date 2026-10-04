@@ -2,6 +2,7 @@
   "dataset": "EM-DAT India Historical Disasters (REAL)",
   "sample_size": 512,
   "split_policy": "Time-based (Train <= 2012, Val 2013-2018, Test 2019+)",
+  "impact_model_residual_sigma": 3.7186,
   "models_benchmarked": {
     "Median_Baseline": {
       "test_mae_log": 3.5717,
@@ -81,52 +82,83 @@
         "coverage_pct": 92.3
       }
     },
+    "single_vs_multi_state_coverage": {
+      "multi-state": {
+        "sample_count": 40,
+        "coverage_pct": 95.0
+      },
+      "single-state": {
+        "sample_count": 38,
+        "coverage_pct": 94.7
+      }
+    },
     "calibration_disclaimer": "Empirical test coverage of 94.9% vs a 90.0% nominal target indicates CONSERVATIVE prediction intervals, NOT better calibration."
   },
   "historical_backtest": [
     {
-      "event_name": "2005 Maharashtra Floods",
-      "year": 2005,
-      "disaster_type": "Flood",
-      "actual_affected": 1908000,
-      "predicted_affected_mid": 36679,
-      "predicted_affected_p10": 12,
-      "predicted_affected_p90": 14950327,
-      "interval_covers_actual": true,
-      "provenance": "REAL_BACKTEST"
+      "DisNo.": "2005-0409-IND",
+      "Location": "Gujarat, Madhya Pradesh, Maharashtra, Goa, Orissa, Karnataka, Himachal Pradesh, Jammu and Kashmir provinces",
+      "provinces_count": 9,
+      "scope": "multi-state",
+      "predicted_median": 290559,
+      "predicted_p10_nominal90": 11,
+      "predicted_p90_nominal90": 13630136,
+      "actual": 20000055,
+      "ratio": 0.0145,
+      "interval_width_orders_of_magnitude": 6.0209,
+      "in_training_period": true
     },
     {
-      "event_name": "2019 Kolhapur-Sangli Floods",
-      "year": 2019,
-      "disaster_type": "Flood",
-      "actual_affected": 3000000,
-      "predicted_affected_mid": 19111,
-      "predicted_affected_p10": 12,
-      "predicted_affected_p90": 39160052,
-      "interval_covers_actual": true,
-      "provenance": "REAL_BACKTEST"
+      "DisNo.": "2005-0541-IND",
+      "Location": "Raj Nandgaon, Durg districts (Chhattisgarh province), Baleshwar, Bhadrak, Jajpur districts (Orissa province), Bhandara, Gondiya, Nagpur districts (Maharashtra province), Balaghat, Katni, Jabalpur, Seoni districts (Madhya Pradesh province)",
+      "provinces_count": 5,
+      "scope": "multi-state",
+      "predicted_median": 71085,
+      "predicted_p10_nominal90": 13,
+      "predicted_p90_nominal90": 34115052,
+      "actual": 550000,
+      "ratio": 0.1292,
+      "interval_width_orders_of_magnitude": 6.3804,
+      "in_training_period": true
     },
     {
-      "event_name": "2001 Bhuj Earthquake",
-      "year": 2001,
-      "disaster_type": "Earthquake",
-      "actual_affected": 6321812,
-      "predicted_affected_mid": 90651,
-      "predicted_affected_p10": 11,
-      "predicted_affected_p90": 15165804,
-      "interval_covers_actual": true,
-      "provenance": "REAL_BACKTEST"
+      "DisNo.": "2001-0033-IND",
+      "Location": "Ahmadabad, Amreli, Anand, Banas Kantha, Bharuch, Bhavnagar, Dahdod, Gandhinagar, Jamnagar, Junagadh, Kachchh, Kheda, Mahesana, Navsari, Patan, Porbandar, Rajkot, Sabar Kantha, Surat, Surendranagar, Vadodara districts (Gurajat province)",
+      "provinces_count": 1,
+      "scope": "single-state",
+      "predicted_median": 6170,
+      "predicted_p10_nominal90": 11,
+      "predicted_p90_nominal90": 4648796,
+      "actual": 6321812,
+      "ratio": 0.001,
+      "interval_width_orders_of_magnitude": 5.5756,
+      "in_training_period": true
     },
     {
-      "event_name": "1993 Latur Earthquake",
-      "year": 1993,
-      "disaster_type": "Earthquake",
-      "actual_affected": 525,
-      "predicted_affected_mid": 1048,
-      "predicted_affected_p10": 19,
-      "predicted_affected_p90": 31314297,
-      "interval_covers_actual": true,
-      "provenance": "REAL_BACKTEST"
+      "DisNo.": "1993-0074-IND",
+      "Location": "Killari, Haegoan, Sostour, Holi (Latur and Osmanabad districts, Maharastra state)",
+      "provinces_count": 2,
+      "scope": "multi-state",
+      "predicted_median": 896,
+      "predicted_p10_nominal90": 16,
+      "predicted_p90_nominal90": 31471998,
+      "actual": 30000,
+      "ratio": 0.0299,
+      "interval_width_orders_of_magnitude": 6.2533,
+      "in_training_period": true
+    },
+    {
+      "DisNo.": "2019-0331-IND",
+      "Location": "Sitamarhi, Sheohar, East Champaran, Muzaffarpur, Madhubani, Darbhanga, Supaul, Araria, Sahersa , Katihar, Purnia, Kishanganj districts (Bihar); Dhemaji, Lakhimpur, Biswanath, Barpeta, Chirang, Golaghat Jorhat, Sonitpur, Darrang, Nalbari, Bongaigaon, Morigaon, Nagaon, Majuli, Baksa, Kokrajhar, Dhubri, South Salmara, Goalpara, Kamrup, Hojai, Sivsagar, Tinsukia, Cachar, KarbiAnglrng, West Karbi-Anglong, Hailakandi, Dibrugarh districts (Assam); Maharashtra, Kerala, Rajasthan, West Bengal, Karnataka, Uttarakand, Himachal Pradesh, Punjab, Uttar Pradesh, Odisha",
+      "provinces_count": 11,
+      "scope": "multi-state",
+      "predicted_median": 19111,
+      "predicted_p10_nominal90": 12,
+      "predicted_p90_nominal90": 39160052,
+      "actual": 3000000,
+      "ratio": 0.0064,
+      "interval_width_orders_of_magnitude": 6.4611,
+      "in_training_period": false
     }
   ]
 }

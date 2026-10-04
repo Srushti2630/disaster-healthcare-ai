@@ -31,7 +31,8 @@ Real polygons, raw zonal population, cleaned facilities, estimated capacity, cle
 - CQR 90% nominal gives 94.9% empirical coverage: intervals are CONSERVATIVE, not "better calibrated". Interval widths span several orders of magnitude.
 - The model ranks events but cannot size them; very large events are underestimated by about 30-150x.
 - SHAP is fitted on XGBoost (not the best model); to be justified or changed.
-- **Backtest (reports/historical_backtest.csv) is INVALID as written**: events were matched by year+hazard. "2005 Maharashtra Floods" is DisNo. 2005-0375-IND (Assam/UP/Bihar, no Maharashtra); "2019 Kolhapur-Sangli" is 2019-0331-IND (Bihar, Assam, Maharashtra, Kerala, etc., multi-state); Latur used 1993-0581-IND (525 affected) instead of 1993-0074-IND (9,748 deaths, 30,000 affected). Three events are also inside the training period. Must be rebuilt by DisNo. with leave-one-event-out.
+- **Backtest (reports/historical_backtest.csv)**: Rebuilt strictly by DisNo. lookup from `config.yaml` using Leave-One-Event-Out validation (`2005-0409-IND`, `2005-0541-IND`, `2001-0033-IND`, `1993-0074-IND`, `2019-0331-IND`). Saved DisNo., full location, province count, spatial scope (`single-state` vs `multi-state`), predicted median, 90% CQR interval (`predicted_p10_nominal90`, `predicted_p90_nominal90`), actual total affected, prediction ratio, log10 interval width, and training period flag. Generated log-log backtest plot (`reports/historical_backtest_loglog.png`). Reported per-hazard and single- vs multi-state empirical CQR coverage in `metrics.json`.
+
 
 ### Phase 3 Demand and shortage engine
 - Monte-Carlo, 2,000 draws per district x medicine; P10/P50/P90 and P(demand > surge stock).

@@ -1,5 +1,6 @@
-event_name,year,disaster_type,actual_affected,predicted_affected_mid,predicted_affected_p10,predicted_affected_p90,interval_covers_actual,provenance
-2005 Maharashtra Floods,2005,Flood,1908000,36679,12,14950327,True,REAL_BACKTEST
-2019 Kolhapur-Sangli Floods,2019,Flood,3000000,19111,12,39160052,True,REAL_BACKTEST
-2001 Bhuj Earthquake,2001,Earthquake,6321812,90651,11,15165804,True,REAL_BACKTEST
-1993 Latur Earthquake,1993,Earthquake,525,1048,19,31314297,True,REAL_BACKTEST
+DisNo.,Location,provinces_count,scope,predicted_median,predicted_p10_nominal90,predicted_p90_nominal90,actual,ratio,interval_width_orders_of_magnitude,in_training_period
+2005-0409-IND,"Gujarat, Madhya Pradesh, Maharashtra, Goa, Orissa, Karnataka, Himachal Pradesh, Jammu and Kashmir provinces",9,multi-state,290559,11,13630136,20000055,0.0145,6.0209,True
+2005-0541-IND,"Raj Nandgaon, Durg districts (Chhattisgarh province), Baleshwar, Bhadrak, Jajpur districts (Orissa province), Bhandara, Gondiya, Nagpur districts (Maharashtra province), Balaghat, Katni, Jabalpur, Seoni districts (Madhya Pradesh province)",5,multi-state,71085,13,34115052,550000,0.1292,6.3804,True
+2001-0033-IND,"Ahmadabad, Amreli, Anand, Banas Kantha, Bharuch, Bhavnagar, Dahdod, Gandhinagar, Jamnagar, Junagadh, Kachchh, Kheda, Mahesana, Navsari, Patan, Porbandar, Rajkot, Sabar Kantha, Surat, Surendranagar, Vadodara districts (Gurajat province)",1,single-state,6170,11,4648796,6321812,0.001,5.5756,True
+1993-0074-IND,"Killari, Haegoan, Sostour, Holi (Latur and Osmanabad districts, Maharastra state)",2,multi-state,896,16,31471998,30000,0.0299,6.2533,True
+2019-0331-IND,"Sitamarhi, Sheohar, East Champaran, Muzaffarpur, Madhubani, Darbhanga, Supaul, Araria, Sahersa , Katihar, Purnia, Kishanganj districts (Bihar); Dhemaji, Lakhimpur, Biswanath, Barpeta, Chirang, Golaghat Jorhat, Sonitpur, Darrang, Nalbari, Bongaigaon, Morigaon, Nagaon, Majuli, Baksa, Kokrajhar, Dhubri, South Salmara, Goalpara, Kamrup, Hojai, Sivsagar, Tinsukia, Cachar, KarbiAnglrng, West Karbi-Anglong, Hailakandi, Dibrugarh districts (Assam); Maharashtra, Kerala, Rajasthan, West Bengal, Karnataka, Uttarakand, Himachal Pradesh, Punjab, Uttar Pradesh, Odisha",11,multi-state,19111,12,39160052,3000000,0.0064,6.4611,False

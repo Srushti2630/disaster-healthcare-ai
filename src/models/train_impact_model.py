@@ -1,12 +1,8 @@
-"""
-Real EM-DAT Impact Model, Conformalized Quantile Regression (CQR), and SHAP Explainability module.
-Trains models to predict log1p(Total Affected) and log1p(No. Injured) on real historical disaster events,
-evaluates using time-based splits (train <= 2012, val 2013-2018, test 2019+), fits CQR intervals,
-runs SHAP TreeExplainer, and performs historical disaster back-testing.
-"""
 from pathlib import Path
 import json
 import joblib
+import re
+import yaml
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -26,11 +22,35 @@ from src.models.cqr import CQRRegressor
 PROCESSED_DIR = Path("data/processed")
 MODELS_DIR = Path("models")
 REPORTS_DIR = Path("reports")
+CONFIG_PATH = Path("config.yaml")
 
 FEATURE_COLS_NUM = [
     "magnitude", "start_year", "start_month", "decade"
 ]
 FEATURE_COLS_CAT = ["disaster_type", "disaster_subtype", "scope"]
+
+INDIAN_STATES = [
+    'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat', 
+    'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh', 
+    'Maharashtra', 'Maharastra', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Orissa', 
+    'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh', 
+    'Uttarakhand', 'West Bengal', 'Jammu and Kashmir', 'Delhi'
+]
+
+def parse_provinces_and_scope(loc_str):
+    loc_str = str(loc_str)
+    found = set()
+    for s in INDIAN_STATES:
+        if re.search(r'\b' + re.escape(s) + r'\b', loc_str, re.IGNORECASE):
+            norm = 'Odisha' if s in ['Odisha', 'Orissa'] else ('Maharashtra' if s == 'Maharastra' else s)
+            found.add(norm)
+    prov_matches = re.findall(r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:province|state)', loc_str)
+    for p in prov_matches:
+        if p not in ['India', 'State', 'District']:
+            found.add(p)
+    cnt = max(1, len(found))
+    scope = "multi-state" if cnt > 1 else "single-state"
+    return cnt, scope
 
 
 def prepare_impact_data():
@@ -160,6 +180,21 @@ def train_and_evaluate_impact_models():
             "coverage_pct": round(float(grp["covered"].mean() * 100), 1)
         }
 
+    # Coverage breakdown for single-state vs multi-state events
+    test_scopes = []
+    for _, r in test_df_cov.iterrows():
+        loc_txt = str(r.get("Location", ""))
+        _, sc = parse_provinces_and_scope(loc_txt)
+        test_scopes.append(sc)
+    test_df_cov["spatial_scope"] = test_scopes
+
+    scope_cov = {}
+    for sc_name, grp in test_df_cov.groupby("spatial_scope"):
+        scope_cov[sc_name] = {
+            "sample_count": int(len(grp)),
+            "coverage_pct": round(float(grp["covered"].mean() * 100), 1)
+        }
+
     # Bootstrap 95% Confidence Intervals (N=78 test set, B=1000)
     ridge_model = models["Ridge"]
     y_pred_ridge = ridge_model.predict(X_test)
@@ -188,6 +223,12 @@ def train_and_evaluate_impact_models():
     best_xgb = models["XGBoost"]
     best_xgb.fit(X_train, y_train)
 
+    # Validation residual standard deviation (sigma) for log affected uncertainty
+    val_preds = best_xgb.predict(X_val)
+    val_residuals = y_val - val_preds
+    val_std_log = float(np.std(val_residuals))
+    impact_sigma_log = round(val_std_log if val_std_log > 0 else 3.40, 4)
+
     # SHAP Explainer
     explainer = shap.TreeExplainer(best_xgb)
     shap_values = explainer(X_test)
@@ -202,44 +243,125 @@ def train_and_evaluate_impact_models():
     plt.savefig(shap_png, dpi=300)
     plt.close()
 
-    # Historical Disaster Back-Test Replay
-    backtest_events = [
-        {"name": "2005 Maharashtra Floods", "year": 2005, "type": "Flood"},
-        {"name": "2019 Kolhapur-Sangli Floods", "year": 2019, "type": "Flood"},
-        {"name": "2001 Bhuj Earthquake", "year": 2001, "type": "Earthquake"},
-        {"name": "1993 Latur Earthquake", "year": 1993, "type": "Earthquake"}
+    # Historical Disaster Back-Test Replay (Leave-One-Event-Out by DisNo.)
+    backtest_disno_list = [
+        "2005-0409-IND", "2005-0541-IND", "2001-0033-IND", "1993-0074-IND", "2019-0331-IND"
     ]
+    if CONFIG_PATH.exists():
+        with open(CONFIG_PATH, "r") as f:
+            cfg = yaml.safe_load(f)
+            if cfg and "backtest_disno_list" in cfg:
+                backtest_disno_list = cfg["backtest_disno_list"]
 
     backtest_records = []
-    for bt in backtest_events:
-        match = df[(df["start_year"] == bt["year"]) & (df["disaster_type"].str.contains(bt["type"], case=False, na=False))]
-        if len(match) > 0:
-            row = match.iloc[0]
-            x_inst = preprocessor.transform(pd.DataFrame([row[FEATURE_COLS_NUM + FEATURE_COLS_CAT]]))
-            pred_log = float(best_xgb.predict(x_inst)[0])
-            low_log, high_log = cqr.predict_interval(x_inst)
+    for target_disno in backtest_disno_list:
+        target_match = df[df["DisNo."] == target_disno]
+        if len(target_match) == 0:
+            continue
+        target_row = target_match.iloc[0]
 
-            pred_aff = int(np.expm1(pred_log))
-            actual_aff = int(row["total_affected"])
-            low_aff = int(max(0, np.expm1(low_log[0])))
-            high_aff = int(np.expm1(high_log[0]))
+        # Exclude target event for leave-one-event-out
+        df_loo = df[df["DisNo."] != target_disno].copy().reset_index(drop=True)
 
-            backtest_records.append({
-                "event_name": bt["name"],
-                "year": bt["year"],
-                "disaster_type": bt["type"],
-                "actual_affected": actual_aff,
-                "predicted_affected_mid": pred_aff,
-                "predicted_affected_p10": low_aff,
-                "predicted_affected_p90": high_aff,
-                "interval_covers_actual": (low_aff <= actual_aff <= high_aff),
-                "provenance": "REAL_BACKTEST"
-            })
+        loo_train_mask = df_loo["start_year"] <= 2012
+        loo_val_mask = (df_loo["start_year"] > 2012) & (df_loo["start_year"] <= 2018)
+
+        loo_train = df_loo[loo_train_mask].copy()
+        loo_val = df_loo[loo_val_mask].copy()
+
+        if len(loo_train) < 100:
+            loo_train = df_loo.iloc[:int(0.80 * len(df_loo))].copy()
+            loo_val = df_loo.iloc[int(0.80 * len(df_loo)):].copy()
+
+        loo_prep = ColumnTransformer([
+            ("num", StandardScaler(), FEATURE_COLS_NUM),
+            ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), FEATURE_COLS_CAT)
+        ])
+
+        X_tr_raw = loo_train[FEATURE_COLS_NUM + FEATURE_COLS_CAT]
+        y_tr = loo_train["target"].values
+        X_va_raw = loo_val[FEATURE_COLS_NUM + FEATURE_COLS_CAT]
+        y_va = loo_val["target"].values
+
+        X_tr = loo_prep.fit_transform(X_tr_raw)
+        X_va = loo_prep.transform(X_va_raw)
+
+        loo_model = xgb.XGBRegressor(n_estimators=100, max_depth=4, learning_rate=0.05, random_state=42)
+        loo_model.fit(X_tr, y_tr)
+
+        loo_cqr = CQRRegressor(alpha=0.10, n_estimators=100, random_state=42)
+        loo_cqr.fit(X_tr, y_tr, X_va, y_va)
+
+        target_raw = pd.DataFrame([target_row[FEATURE_COLS_NUM + FEATURE_COLS_CAT]])
+        X_tgt = loo_prep.transform(target_raw)
+
+        pred_log = float(loo_model.predict(X_tgt)[0])
+        low_log, high_log = loo_cqr.predict_interval(X_tgt)
+
+        pred_median = int(max(0, np.expm1(pred_log)))
+        p10_nominal90 = int(max(0, np.expm1(low_log[0])))
+        p90_nominal90 = int(np.expm1(high_log[0]))
+        actual_aff = int(target_row["total_affected"])
+
+        loc_text = str(target_row.get("Location", "Unknown"))
+        prov_cnt, scope_val = parse_provinces_and_scope(loc_text)
+        ratio_val = round(float(pred_median / actual_aff), 4) if actual_aff > 0 else 0.0
+
+        width_orders_of_mag = round(float((high_log[0] - low_log[0]) / np.log(10)), 4)
+        in_train = bool(target_row["start_year"] <= 2012)
+
+        backtest_records.append({
+            "DisNo.": target_disno,
+            "Location": loc_text,
+            "provinces_count": prov_cnt,
+            "scope": scope_val,
+            "predicted_median": pred_median,
+            "predicted_p10_nominal90": p10_nominal90,
+            "predicted_p90_nominal90": p90_nominal90,
+            "actual": actual_aff,
+            "ratio": ratio_val,
+            "interval_width_orders_of_magnitude": width_orders_of_mag,
+            "in_training_period": in_train
+        })
 
     bt_df = pd.DataFrame(backtest_records)
     bt_csv = REPORTS_DIR / "historical_backtest.csv"
     bt_df.to_csv(bt_csv, index=False)
-    print(f"✓ Historical back-test completed for {len(bt_df)} real benchmark disaster events.")
+
+    # Log-Log Plot
+    if len(bt_df) > 0:
+        plt.figure(figsize=(8, 6))
+        actuals = bt_df["actual"].values
+        medians = bt_df["predicted_median"].values
+        p10s = bt_df["predicted_p10_nominal90"].values
+        p90s = bt_df["predicted_p90_nominal90"].values
+
+        yerr_lower = np.maximum(1.0, medians - p10s)
+        yerr_upper = np.maximum(1.0, p90s - medians)
+
+        plt.errorbar(actuals, medians, yerr=[yerr_lower, yerr_upper], fmt='o', color='navy', ecolor='gray', capsize=5, label='Disaster Events (90% CQR Interval)')
+        for _, r in bt_df.iterrows():
+            plt.annotate(r["DisNo."], (r["actual"], r["predicted_median"]), textcoords="offset points", xytext=(5, 5), fontsize=8)
+
+        all_vals = np.concatenate([actuals, medians, p10s, p90s])
+        min_v = max(1.0, all_vals.min() / 2)
+        max_v = all_vals.max() * 2
+
+        plt.plot([min_v, max_v], [min_v, max_v], 'r--', label='1:1 Perfect Prediction')
+        plt.xscale('log')
+        plt.yscale('log')
+        plt.xlim(min_v, max_v)
+        plt.ylim(min_v, max_v)
+        plt.xlabel('Actual Total Affected (Log Scale)')
+        plt.ylabel('Predicted Total Affected (Log Scale)')
+        plt.title('Leave-One-Event-Out Historical Backtest (Log-Log Scale)')
+        plt.grid(True, which='both', ls='--', alpha=0.5)
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(REPORTS_DIR / "historical_backtest_loglog.png", dpi=300)
+        plt.close()
+
+    print(f"✓ Leave-one-event-out historical back-test completed for {len(bt_df)} real disaster events.")
 
     # Save artifacts
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -250,7 +372,8 @@ def train_and_evaluate_impact_models():
         "feature_cols_num": FEATURE_COLS_NUM,
         "feature_cols_cat": FEATURE_COLS_CAT,
         "median_baseline": median_val,
-        "cqr_margin": float(cqr.conformal_margin)
+        "cqr_margin": float(cqr.conformal_margin),
+        "sigma_log": impact_sigma_log
     }
     joblib.dump(bundle, MODELS_DIR / "impact_models.joblib")
     joblib.dump(explainer, MODELS_DIR / "shap_explainer.joblib")
@@ -260,6 +383,7 @@ def train_and_evaluate_impact_models():
         "dataset": "EM-DAT India Historical Disasters (REAL)",
         "sample_size": len(df),
         "split_policy": "Time-based (Train <= 2012, Val 2013-2018, Test 2019+)",
+        "impact_model_residual_sigma": impact_sigma_log,
         "models_benchmarked": metrics,
         "ridge_bootstrap_ci": {
             "r2_95_ci": r2_ci,
@@ -272,6 +396,7 @@ def train_and_evaluate_impact_models():
             "median_interval_multiplicative_factor": round(med_mult_factor, 2),
             "conformal_margin_log_units": round(float(cqr.conformal_margin), 4),
             "per_hazard_coverage": per_hazard_cov,
+            "single_vs_multi_state_coverage": scope_cov,
             "calibration_disclaimer": "Empirical test coverage of 94.9% vs a 90.0% nominal target indicates CONSERVATIVE prediction intervals, NOT better calibration."
         },
         "historical_backtest": backtest_records
@@ -285,3 +410,4 @@ def train_and_evaluate_impact_models():
 
 if __name__ == "__main__":
     train_and_evaluate_impact_models()
+

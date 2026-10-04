@@ -25,3 +25,11 @@ paths:
   models_dir: "models"
   reports_dir: "reports"
   boundaries_dir: "data/raw/boundaries"
+
+backtest_disno_list:
+  - "2005-0409-IND"
+  - "2005-0541-IND"
+  - "2001-0033-IND"
+  - "1993-0074-IND"
+  - "2019-0331-IND"
+
