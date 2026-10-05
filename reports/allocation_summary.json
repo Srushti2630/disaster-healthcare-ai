@@ -1,94 +1,257 @@
 {
   "benchmarks": {
     "OR-Tools SCIP": {
-      "unmet_demand_mean": 248346216.7,
-      "unmet_demand_std": 465389306.2,
-      "unmet_demand_min": 0.0,
-      "unmet_demand_max": 1775430035.6,
-      "cost_mean": 25169894199.55,
-      "cost_std": 31743215495.99,
-      "cost_min": 0.0,
-      "cost_max": 104781912560.24,
-      "unit_km_mean": 1677992118.3,
-      "route_km_mean": 7148.6,
-      "min_coverage_mean": 0.387,
-      "min_coverage_std": 0.402,
-      "min_coverage_min": 0.002,
-      "min_coverage_max": 1.0,
+      "unmet_demand_mean": 1108992.6,
+      "unmet_pct_mean": 2.09,
+      "unmet_pct_median": 0.0,
+      "unmet_pct_p75": 0.03,
+      "unmet_pct_p90": 0.39,
+      "cost_mean": 3406362338.27,
+      "unit_km_mean": 227090472.6,
+      "route_km_mean": 2451.7,
+      "min_coverage_mean": 0.812,
       "violations_mean": 0.0,
       "violations_max": 0
     },
     "No Redistribution": {
-      "unmet_demand_mean": 251923593.5,
-      "unmet_demand_std": 464344316.0,
-      "unmet_demand_min": 0.0,
-      "unmet_demand_max": 1775434205.9,
+      "unmet_demand_mean": 1920184.4,
+      "unmet_pct_mean": 5.32,
+      "unmet_pct_median": 0.0,
+      "unmet_pct_p75": 0.77,
+      "unmet_pct_p90": 20.33,
       "cost_mean": 0.0,
-      "cost_std": 0.0,
-      "cost_min": 0.0,
-      "cost_max": 0.0,
       "unit_km_mean": 0.0,
       "route_km_mean": 0.0,
-      "min_coverage_mean": 0.27,
-      "min_coverage_std": 0.354,
-      "min_coverage_min": 0.002,
-      "min_coverage_max": 1.0,
+      "min_coverage_mean": 0.8,
       "violations_mean": 0.0,
       "violations_max": 0
     },
     "Proportional Population": {
-      "unmet_demand_mean": 250984266.5,
-      "unmet_demand_std": 464764222.9,
-      "unmet_demand_min": 0.0,
-      "unmet_demand_max": 1775434159.9,
-      "cost_mean": 18912542255.0,
-      "cost_std": 19328584447.23,
-      "cost_min": 0.0,
-      "cost_max": 53540798027.49,
-      "unit_km_mean": 1260831552.0,
-      "route_km_mean": 60311.4,
-      "min_coverage_mean": 0.283,
-      "min_coverage_std": 0.358,
-      "min_coverage_min": 0.002,
-      "min_coverage_max": 1.0,
+      "unmet_demand_mean": 1657606.3,
+      "unmet_pct_mean": 5.25,
+      "unmet_pct_median": 0.0,
+      "unmet_pct_p75": 3.27,
+      "unmet_pct_p90": 15.97,
+      "cost_mean": 17079393521.63,
+      "unit_km_mean": 1138624624.8,
+      "route_km_mean": 20436.5,
+      "min_coverage_mean": 0.804,
       "violations_mean": 0.0,
       "violations_max": 0
     },
     "Greedy Nearest": {
-      "unmet_demand_mean": 248477931.4,
-      "unmet_demand_std": 465316606.6,
-      "unmet_demand_min": 0.0,
-      "unmet_demand_max": 1775430680.9,
-      "cost_mean": 34709503165.34,
-      "cost_std": 41392562426.81,
-      "cost_min": 0.0,
-      "cost_max": 132543943764.08,
-      "unit_km_mean": 2313966111.0,
-      "route_km_mean": 8878.7,
-      "min_coverage_mean": 0.321,
-      "min_coverage_std": 0.412,
-      "min_coverage_min": 0.002,
-      "min_coverage_max": 1.0,
+      "unmet_demand_mean": 1397663.0,
+      "unmet_pct_mean": 3.45,
+      "unmet_pct_median": 0.0,
+      "unmet_pct_p75": 0.68,
+      "unmet_pct_p90": 11.14,
+      "cost_mean": 5082270237.46,
+      "unit_km_mean": 338817639.2,
+      "route_km_mean": 3132.8,
+      "min_coverage_mean": 0.812,
       "violations_mean": 0.0,
       "violations_max": 0
     },
     "Greedy Largest Surplus": {
-      "unmet_demand_mean": 248376227.5,
-      "unmet_demand_std": 465373442.2,
-      "unmet_demand_min": 0.0,
-      "unmet_demand_max": 1775430850.9,
-      "cost_mean": 36551996612.05,
-      "cost_std": 42487308143.19,
-      "cost_min": 0.0,
-      "cost_max": 132543960322.1,
-      "unit_km_mean": 2436798987.5,
-      "route_km_mean": 10227.2,
-      "min_coverage_mean": 0.321,
-      "min_coverage_std": 0.412,
-      "min_coverage_min": 0.002,
-      "min_coverage_max": 1.0,
+      "unmet_demand_mean": 1151748.4,
+      "unmet_pct_mean": 2.25,
+      "unmet_pct_median": 0.0,
+      "unmet_pct_p75": 0.04,
+      "unmet_pct_p90": 1.93,
+      "cost_mean": 6537418272.32,
+      "unit_km_mean": 435827601.5,
+      "route_km_mean": 3081.3,
+      "min_coverage_mean": 0.812,
       "violations_mean": 0.0,
       "violations_max": 0
     }
-  }
+  },
+  "restricted_benchmarks": {
+    "OR-Tools SCIP": {
+      "unmet_demand_mean": 4435970.4,
+      "unmet_pct_mean": 8.36,
+      "unmet_pct_median": 0.2,
+      "unmet_pct_p75": 2.11,
+      "unmet_pct_p90": 24.35,
+      "cost_mean": 13625449353.06,
+      "unit_km_mean": 908361890.2,
+      "route_km_mean": 9807.0,
+      "min_coverage_mean": 0.247,
+      "violations_mean": 0.0,
+      "violations_max": 0
+    },
+    "No Redistribution": {
+      "unmet_demand_mean": 7680737.8,
+      "unmet_pct_mean": 21.27,
+      "unmet_pct_median": 19.61,
+      "unmet_pct_p75": 26.83,
+      "unmet_pct_p90": 38.62,
+      "cost_mean": 0.0,
+      "unit_km_mean": 0.0,
+      "route_km_mean": 0.0,
+      "min_coverage_mean": 0.199,
+      "violations_mean": 0.0,
+      "violations_max": 0
+    },
+    "Proportional Population": {
+      "unmet_demand_mean": 6630425.3,
+      "unmet_pct_mean": 20.99,
+      "unmet_pct_median": 15.71,
+      "unmet_pct_p75": 18.28,
+      "unmet_pct_p90": 32.67,
+      "cost_mean": 68317574086.51,
+      "unit_km_mean": 4554498499.1,
+      "route_km_mean": 81746.2,
+      "min_coverage_mean": 0.215,
+      "violations_mean": 0.0,
+      "violations_max": 0
+    },
+    "Greedy Nearest": {
+      "unmet_demand_mean": 5590652.1,
+      "unmet_pct_mean": 13.81,
+      "unmet_pct_median": 11.05,
+      "unmet_pct_p75": 11.95,
+      "unmet_pct_p90": 28.29,
+      "cost_mean": 20329080949.84,
+      "unit_km_mean": 1355270556.7,
+      "route_km_mean": 12531.1,
+      "min_coverage_mean": 0.247,
+      "violations_mean": 0.0,
+      "violations_max": 0
+    },
+    "Greedy Largest Surplus": {
+      "unmet_demand_mean": 4606993.4,
+      "unmet_pct_mean": 9.02,
+      "unmet_pct_median": 1.72,
+      "unmet_pct_p75": 3.84,
+      "unmet_pct_p90": 25.05,
+      "cost_mean": 26149673089.3,
+      "unit_km_mean": 1743310405.9,
+      "route_km_mean": 12325.4,
+      "min_coverage_mean": 0.247,
+      "violations_mean": 0.0,
+      "violations_max": 0
+    }
+  },
+  "restricted_count": 5,
+  "wilcoxon_tests": {
+    "No Redistribution": {
+      "W_stat": 0.0,
+      "p_value": 0.043114
+    },
+    "Proportional Population": {
+      "W_stat": 0.0,
+      "p_value": 0.043114
+    },
+    "Greedy Nearest": {
+      "W_stat": 0.0,
+      "p_value": 0.043114
+    },
+    "Greedy Largest Surplus": {
+      "W_stat": 0.0,
+      "p_value": 0.043114
+    }
+  },
+  "scenario_demand_stock": [
+    {
+      "scenario_idx": 0,
+      "total_demand": 42297.299999999996,
+      "total_stock": 33438658.0
+    },
+    {
+      "scenario_idx": 1,
+      "total_demand": 306135.7,
+      "total_stock": 33438658.0
+    },
+    {
+      "scenario_idx": 2,
+      "total_demand": 2474397.2,
+      "total_stock": 33438658.0
+    },
+    {
+      "scenario_idx": 3,
+      "total_demand": 167385.0,
+      "total_stock": 33438658.0
+    },
+    {
+      "scenario_idx": 4,
+      "total_demand": 140504.9,
+      "total_stock": 33438658.0
+    },
+    {
+      "scenario_idx": 5,
+      "total_demand": 907561.0,
+      "total_stock": 33438658.0
+    },
+    {
+      "scenario_idx": 6,
+      "total_demand": 651166.2,
+      "total_stock": 33438658.0
+    },
+    {
+      "scenario_idx": 7,
+      "total_demand": 52403.2,
+      "total_stock": 33438658.0
+    },
+    {
+      "scenario_idx": 8,
+      "total_demand": 6064.2,
+      "total_stock": 33438658.0
+    },
+    {
+      "scenario_idx": 9,
+      "total_demand": 56710.3,
+      "total_stock": 33438658.0
+    },
+    {
+      "scenario_idx": 10,
+      "total_demand": 1679404.6,
+      "total_stock": 33438658.0
+    },
+    {
+      "scenario_idx": 11,
+      "total_demand": 54974040.7,
+      "total_stock": 33438658.0
+    },
+    {
+      "scenario_idx": 12,
+      "total_demand": 3047593.3000000003,
+      "total_stock": 33438658.0
+    },
+    {
+      "scenario_idx": 13,
+      "total_demand": 4538746.7,
+      "total_stock": 33438658.0
+    },
+    {
+      "scenario_idx": 14,
+      "total_demand": 6436312.7,
+      "total_stock": 33438658.0
+    },
+    {
+      "scenario_idx": 15,
+      "total_demand": 27228784.3,
+      "total_stock": 33438658.0
+    },
+    {
+      "scenario_idx": 16,
+      "total_demand": 4035390.1,
+      "total_stock": 33438658.0
+    },
+    {
+      "scenario_idx": 17,
+      "total_demand": 2216877.0,
+      "total_stock": 33438658.0
+    },
+    {
+      "scenario_idx": 18,
+      "total_demand": 24945651.5,
+      "total_stock": 33438658.0
+    },
+    {
+      "scenario_idx": 19,
+      "total_demand": 4928030.3,
+      "total_stock": 33438658.0
+    }
+  ]
 }

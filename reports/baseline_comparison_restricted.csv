@@ -1,0 +1,6 @@
+method,unmet_demand_mean,unmet_pct_mean,unmet_pct_median,unmet_pct_p75,unmet_pct_p90,cost_mean,unit_km_mean,route_km_mean,min_coverage_mean,violations_mean,violations_max
+OR-Tools SCIP,4435970.4,8.36,0.2,2.11,24.35,13625449353.06,908361890.2,9807.0,0.247,0.0,0
+No Redistribution,7680737.8,21.27,19.61,26.83,38.62,0.0,0.0,0.0,0.199,0.0,0
+Proportional Population,6630425.3,20.99,15.71,18.28,32.67,68317574086.51,4554498499.1,81746.2,0.215,0.0,0
+Greedy Nearest,5590652.1,13.81,11.05,11.95,28.29,20329080949.84,1355270556.7,12531.1,0.247,0.0,0
+Greedy Largest Surplus,4606993.4,9.02,1.72,3.84,25.05,26149673089.3,1743310405.9,12325.4,0.247,0.0,0

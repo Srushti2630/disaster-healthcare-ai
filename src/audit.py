@@ -99,13 +99,20 @@ def run_sensitivity_analysis():
         ("IV Fluids Rate (+50%)", 1.5, "iv_fluids"),
         ("Blood Units Trauma Rate (+50%)", 1.5, "blood_units"),
         ("Hazard Severity Multiplier (+30%)", 1.3, "all"),
+        ("Spatial Decay Radius (decay_km = 75km)", 1.0, "decay_75"),
+        ("Spatial Decay Radius (decay_km = 300km)", 1.0, "decay_300"),
     ]
 
     tornado_records = []
     for label, mult, med_target in variations:
-        # Simulate parameter variation
+        decay_val = 150.0
+        if med_target == "decay_75":
+            decay_val = 75.0
+        elif med_target == "decay_300":
+            decay_val = 300.0
+
         var_preds = {d: {"hazard_type": "Flood", "affected_mean_log": np.log1p(np.expm1(9.0) * (mult if med_target == "all" else 1.0)), "affected_std_log": 0.40} for d in MAHARASHTRA_DISTRICTS.keys()}
-        v_sim = run_monte_carlo_district_simulation(var_preds, n_draws=1000, random_seed=42)
+        v_sim = run_monte_carlo_district_simulation(var_preds, n_draws=1000, random_seed=42, decay_km=decay_val)
         v_high_risk_pct = float((v_sim["risk_level"] == "High").mean() * 100)
         diff = v_high_risk_pct - base_high_risk_pct
 

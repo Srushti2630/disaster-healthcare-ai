@@ -452,46 +452,85 @@ def compare_against_baselines(sim_summary_path: Path = None, n_scenarios: int = 
 
     results = {m: [] for m in methods}
     sample_plans = {}
+    scenario_demand_stock = []
 
-    for sc in scenarios:
+    for sc_idx, sc in enumerate(scenarios):
+        tot_dem = sum(sum(sc["demands"][d].values()) for d in sc["demands"])
+        tot_stk = sum(sum(sc["stocks"][d].values()) for d in sc["stocks"])
+        scenario_demand_stock.append({"scenario_idx": sc_idx, "total_demand": tot_dem, "total_stock": tot_stk})
+
         for m_name, solver_fn in methods.items():
             p_df = solver_fn(sc["demands"], sc["stocks"], sc["risks"], distances_df)
             eval_metrics = evaluate_allocation_plan(p_df, sc["demands"], sc["stocks"], sc["risks"], distances_df)
+            eval_metrics["unmet_pct"] = (eval_metrics["unmet_demand"] / max(1.0, tot_dem)) * 100.0
+            eval_metrics["total_demand"] = tot_dem
+            eval_metrics["total_stock"] = tot_stk
             results[m_name].append(eval_metrics)
             if m_name not in sample_plans and len(p_df) > 0:
                 sample_plans[m_name] = p_df
 
-    summary_rows = []
-    for m_name, res_list in results.items():
-        df_m = pd.DataFrame(res_list)
-        summary_rows.append({
-            "method": m_name,
-            "unmet_demand_mean": round(float(df_m["unmet_demand"].mean()), 1),
-            "unmet_demand_std": round(float(df_m["unmet_demand"].std()), 1),
-            "unmet_demand_min": round(float(df_m["unmet_demand"].min()), 1),
-            "unmet_demand_max": round(float(df_m["unmet_demand"].max()), 1),
-            "cost_mean": round(float(df_m["cost"].mean()), 2),
-            "cost_std": round(float(df_m["cost"].std()), 2),
-            "cost_min": round(float(df_m["cost"].min()), 2),
-            "cost_max": round(float(df_m["cost"].max()), 2),
-            "unit_km_mean": round(float(df_m["unit_km"].mean()), 1),
-            "route_km_mean": round(float(df_m["route_km"].mean()), 1),
-            "min_coverage_mean": round(float(df_m["minimum_coverage"].mean()), 3),
-            "min_coverage_std": round(float(df_m["minimum_coverage"].std()), 3),
-            "min_coverage_min": round(float(df_m["minimum_coverage"].min()), 3),
-            "min_coverage_max": round(float(df_m["minimum_coverage"].max()), 3),
-            "violations_mean": round(float(df_m["violations"].mean()), 2),
-            "violations_max": int(df_m["violations"].max())
-        })
+    from scipy.stats import wilcoxon
 
-    summary_df = pd.DataFrame(summary_rows)
-    print("\n--- Baseline Comparison Table (20 Scenarios, Shared Evaluator) ---")
+    def compute_summary_table(res_dict, filter_indices=None):
+        rows = []
+        for m_name, res_list in res_dict.items():
+            if filter_indices is not None:
+                res_list = [res_list[idx] for idx in filter_indices]
+            df_m = pd.DataFrame(res_list)
+            rows.append({
+                "method": m_name,
+                "unmet_demand_mean": round(float(df_m["unmet_demand"].mean()), 1),
+                "unmet_pct_mean": round(float(df_m["unmet_pct"].mean()), 2),
+                "unmet_pct_median": round(float(df_m["unmet_pct"].median()), 2),
+                "unmet_pct_p75": round(float(np.percentile(df_m["unmet_pct"], 75)), 2),
+                "unmet_pct_p90": round(float(np.percentile(df_m["unmet_pct"], 90)), 2),
+                "cost_mean": round(float(df_m["cost"].mean()), 2),
+                "unit_km_mean": round(float(df_m["unit_km"].mean()), 1),
+                "route_km_mean": round(float(df_m["route_km"].mean()), 1),
+                "min_coverage_mean": round(float(df_m["minimum_coverage"].mean()), 3),
+                "violations_mean": round(float(df_m["violations"].mean()), 2),
+                "violations_max": int(df_m["violations"].max())
+            })
+        return pd.DataFrame(rows)
+
+    summary_df = compute_summary_table(results)
+
+    # Scenarios where No Redistribution has unmet > 0
+    no_redist_unmet = [r["unmet_demand"] for r in results["No Redistribution"]]
+    restricted_indices = [idx for idx, val in enumerate(no_redist_unmet) if val > 0]
+    restricted_summary_df = compute_summary_table(results, filter_indices=restricted_indices)
+
+    # Wilcoxon signed-rank tests paired against OR-Tools SCIP
+    or_scip_unmet = np.array([r["unmet_demand"] for r in results["OR-Tools SCIP"]])
+    wilcoxon_results = {}
+    for m_name in methods:
+        if m_name == "OR-Tools SCIP":
+            continue
+        other_unmet = np.array([r["unmet_demand"] for r in results[m_name]])
+        diff = other_unmet - or_scip_unmet
+        if np.all(diff == 0):
+            w_stat, p_val = 0.0, 1.0
+        else:
+            w_stat, p_val = wilcoxon(other_unmet, or_scip_unmet)
+            w_stat, p_val = float(w_stat), float(p_val)
+        wilcoxon_results[m_name] = {"W_stat": w_stat, "p_value": round(p_val, 6)}
+
+    print("\n--- Baseline Comparison Table (All 20 Scenarios) ---")
     print(summary_df.to_string(index=False))
+
+    print(f"\n--- Restricted Scenarios Table (N={len(restricted_indices)}, No Redistribution Unmet > 0) ---")
+    print(restricted_summary_df.to_string(index=False))
+
+    print("\n--- Wilcoxon Signed-Rank Tests (Paired vs OR-Tools SCIP) ---")
+    for m_name, w_res in wilcoxon_results.items():
+        print(f"  OR-Tools SCIP vs {m_name}: W = {w_res['W_stat']}, p = {w_res['p_value']}")
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     comp_csv = REPORTS_DIR / "baseline_comparison.csv"
     summary_df.to_csv(comp_csv, index=False)
-    print(f"✓ Saved baseline comparison table to {comp_csv}")
+
+    rest_csv = REPORTS_DIR / "baseline_comparison_restricted.csv"
+    restricted_summary_df.to_csv(rest_csv, index=False)
 
     # Plot Unmet Demand vs Cost
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -513,17 +552,25 @@ def compare_against_baselines(sim_summary_path: Path = None, n_scenarios: int = 
     fig.savefig(plot_path, dpi=300)
     fig.savefig(REPORTS_DIR / "pareto_sweep.png", dpi=300)
     plt.close(fig)
-    print(f"✓ Saved comparison plot to {plot_path}")
 
-    # Save sample allocation plan
     if "OR-Tools SCIP" in sample_plans:
         sample_plans["OR-Tools SCIP"].to_csv(REPORTS_DIR / "sample_allocation_plan.csv", index=False)
 
     benchmarks_dict = summary_df.set_index("method").to_dict(orient="index")
-    with open(REPORTS_DIR / "allocation_summary.json", "w") as f:
-        json.dump({"benchmarks": benchmarks_dict}, f, indent=2)
+    restricted_dict = restricted_summary_df.set_index("method").to_dict(orient="index")
 
-    return benchmarks_dict
+    summary_export = {
+        "benchmarks": benchmarks_dict,
+        "restricted_benchmarks": restricted_dict,
+        "restricted_count": len(restricted_indices),
+        "wilcoxon_tests": wilcoxon_results,
+        "scenario_demand_stock": scenario_demand_stock
+    }
+
+    with open(REPORTS_DIR / "allocation_summary.json", "w") as f:
+        json.dump(summary_export, f, indent=2)
+
+    return summary_export
 
 def main():
     print("==================================================")
