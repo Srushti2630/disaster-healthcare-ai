@@ -32,13 +32,14 @@ This document prepares project authors for academic viva voce examinations, tech
 **Answer**: Log-scale prediction intervals span $\approx 13.8$ log units, which translates to a multiplicative factor of $\approx 10^5$ to $10^6$ in raw casualty counts. This demonstrates that historical disaster data exhibits high intrinsic variance ($W_i$ varies by orders of magnitude). The ML model serves as a **relative risk ranker across districts and hazard types**, rather than an exact point-estimator of casualty counts.
 
 ### Q9: Why is a Random Forest surrogate classifier trained, and why not call the Monte-Carlo engine directly?
-**Answer**: The full Monte-Carlo simulation engine executes 2,000 stochastic draws per district $\times$ medicine (7,000+ calculations), taking ~1.2 to 2.5 seconds per scenario. For interactive Streamlit dashboard sliders, 2-second latencies degrade user experience. The Random Forest surrogate classifier is trained on 500 Monte-Carlo scenarios to predict shortage risk levels in $< 5\text{ ms}$, providing instant visual feedback.
+**Answer**: The full Monte-Carlo simulation engine executes 2,000 stochastic draws per district $\times$ medicine (7,000+ calculations), taking ~1.2 to 2.5 seconds per scenario. For interactive dashboard sliders, multi-second latencies degrade user experience. The Random Forest surrogate classifier is trained on 500 Monte-Carlo scenarios to predict shortage risk levels in $< 5\text{ ms}$, providing instant visual feedback.
 
 ### Q10: How was the surrogate classifier validated to avoid optimistic bias?
 **Answer**: Splitting surrogate training datasets by row causes data leakage because rows from the same disaster scenario share identical hazard parameters. We implemented **scenario-based splitting**: 500 diverse disaster scenarios (varying hazard type, magnitude, epicentre, month) were sampled, and split 80% (400 scenarios) for training and 20% (100 scenarios) for testing by `scenario_id`. On held-out scenarios under full residual model uncertainty ($\sigma \approx 3.7186$), the surrogate achieved **91.28% fidelity accuracy**, **0.9085 macro F1**, and **0.0490 Expected Calibration Error (ECE)**.
 
 ### Q11: How does the OR-Tools SCIP Mixed-Integer Programming (MIP) optimization solver work?
-**Answer**: The allocation problem is modeled as a multi-commodity network flow MIP solver over 35 district nodes and 5 medicine classes. Integer decision variables $x_{ijm} \in \mathbb{Z}_{\ge 0}$ represent the quantity of medicine $m$ transferred from source district $i$ to destination district $j$. Slacks $u_{jm} \ge 0$ represent unmet demand, and $\theta \in [0, 1]$ represents minimum regional coverage. The solver minimizes a multi-objective function: $\min \sum w_{\text{unmet}} \cdot c_m \cdot u_{jm} + \sum w_{\text{cost}} \cdot d_{ij} \cdot x_{ijm} - w_{\text{fairness}} \cdot \theta$.
+**Answer**: The allocation problem is modeled as a multi-commodity network flow MIP solver over 35 district nodes and 5 medicine classes. Integer decision variables $x_{ijm} \in \mathbb{Z}_{\ge 0}$ represent the quantity of medicine $m$ transferred from source district $i$ to destination district $j$. Slacks $u_{jm} \ge 0$ represent unmet demand, and $\theta \in [0, 1]$ represents minimum regional coverage. The solver minimizes a multi-objective function:
+$$\min \sum w_{\text{unmet}} \cdot c_m \cdot u_{jm} + \sum w_{\text{cost}} \cdot d_{ij} \cdot x_{ijm} - w_{\text{fairness}} \cdot \theta$$
 
 ### Q12: What constraints are enforced during resource allocation optimization?
 **Answer**:
@@ -56,15 +57,15 @@ This document prepares project authors for academic viva voce examinations, tech
 4. **Greedy Nearest Surplus**: Allocates surplus from the nearest available non-High-risk surplus district.
 5. **Greedy Largest Surplus**: Allocates surplus from the non-High-risk district holding the largest available surplus stock.
 
-All 5 methods were evaluated through **ONE shared constraint checker** and **ONE unified cost function** ($\text{Cost} = \text{unit\_km} \times 15.0 + \text{active\_routes} \times 500.0$).
+All 5 methods were evaluated through **ONE shared constraint checker** and **ONE unified cost function** ($\text{Cost Index} = \text{unit\_km} \times 15.0 + \text{active\_routes} \times 500.0$).
 
 ### Q14: What were the key benchmarking results from the 20-scenario optimization study?
 **Answer**: Across 20 scenarios under full residual model uncertainty ($\sigma \approx 3.7186$):
-- **OR-Tools SCIP**: Achieved lowest mean unmet demand (**248.35M units**), lowest transport cost among active redistribution methods (**25.17B INR**), lowest active route distance (**7,148.6 km**), highest minimum regional coverage (**0.387**), and **0 rule violations**.
-- **Greedy Largest Surplus**: Mean unmet demand 248.38M units; transport cost 36.55B INR (45.2% higher cost than OR-Tools).
-- **Greedy Nearest**: Mean unmet demand 248.48M units; transport cost 34.71B INR (37.9% higher cost than OR-Tools).
-- **Proportional Population**: Mean unmet demand 250.98M units; transport cost 18.91B INR.
-- **No Redistribution**: Mean unmet demand 251.92M units; cost 0.0 INR (excluded from lowest cost claims).
+- **OR-Tools SCIP**: Achieved lowest mean unmet demand (**248.35M units**), lowest transport cost index among active redistribution methods (**25.17B Cost Index units**), lowest active route distance (**7,148.6 km**), highest minimum regional coverage (**0.387**), and **0 rule violations**.
+- **Greedy Largest Surplus**: Mean unmet demand 248.38M units; transport cost index 36.55B units (45.2% higher cost than OR-Tools).
+- **Greedy Nearest**: Mean unmet demand 248.48M units; transport cost index 34.71B units (37.9% higher cost than OR-Tools).
+- **Proportional Population**: Mean unmet demand 250.98M units; transport cost index 18.91B units.
+- **No Redistribution**: Mean unmet demand 251.92M units; cost index 0.0 (excluded from lowest cost claims).
 
 ### Q15: What is the difference between `unit_km` and `route_km`?
 **Answer**:
@@ -75,7 +76,7 @@ All 5 methods were evaluated through **ONE shared constraint checker** and **ONE
 **Answer**: Direct lat/lon distance (great-circle Haversine) underestimates actual road driving distance due to terrain, river crossings, and road winding. We multiply Haversine distance by a **1.3 circuity factor** ($\text{distance\_km} = \text{Haversine} \times 1.3$), tagged as `ASSUMED` transport physics.
 
 ### Q17: How does the SHA-256 audit log ensure tamper-evident governance?
-**Answer**: Every human officer review action (Approve/Reject decision, reviewer role, reason code, scenario summary) is appended to `reports/audit_log.csv` as a cryptographically hash-chained entry. The current entry hash $H_k = \text{SHA256}(H_{k-1} \mid \text{timestamp} \mid \text{user} \mid \text{action} \mid \text{reason} \mid \text{summary})$. If any historical record is modified or deleted, $H_k \neq H_{k-1}$ checks fail during automated validation (`verify_audit_log_integrity()`), immediately flagging content tampering.
+**Answer**: Every human officer review action (Approve/Reject decision, reviewer role, reason code, scenario summary) is appended to the audit ledger as a cryptographically hash-chained entry. The current entry hash $H_k = \text{SHA256}(H_{k-1} \mid \text{timestamp} \mid \text{user} \mid \text{action} \mid \text{reason} \mid \text{summary})$. If any historical record is modified or deleted, $H_k \neq H_{k-1}$ checks fail during automated validation (`verify_audit_log_integrity()`), immediately flagging content tampering.
 
 ### Q18: What is the raw zonal sum population gap (~5.97%), and why is it not artificially rescaled?
 **Answer**: Summing WorldPop 2020 1km constrained population raster pixels across Maharashtra's 35 district polygons yields **131,936,179**, whereas the official government projected population for 2020 is ~124,500,000 (~5.97% difference). Artificial rescaling alters raw data telemetry. Per Rule 1 (Never fabricate/alter raw data), we output raw raster sums tagged `REAL` and document the 5.97% gap as an open data sanity check.
@@ -89,5 +90,30 @@ All 5 methods were evaluated through **ONE shared constraint checker** and **ONE
 ### Q20: How does the framework demonstrate full end-to-end reproducibility?
 **Answer**: The entire pipeline is fully automated and state-agnostic:
 1. `python run_all.py` executes data cleaning, real boundary verification, WorldPop zonal extraction, impact model training, CQR calibration, Monte-Carlo scenario surrogate training, OR-Tools 20-scenario optimization benchmarking, and report generation in a single command.
-2. `pytest -q` runs 25 automated unit/integration tests verifying dataset integrity, non-leakage, solver constraints, audit log hash chaining, and Streamlit `AppTest` smoke tests for all pages.
-3. Environment and dependencies are pinned in `requirements.txt`.
+2. `pytest tests/test_core.py -v` and `pytest tests_api/ -v` run 48 automated tests verifying dataset integrity, non-leakage, solver constraints, audit log hash chaining, and REST endpoints.
+3. Environment and dependencies are pinned in `requirements.txt` and `requirements-api.txt`.
+
+---
+
+### Q21: Why was a decoupled FastAPI + React architecture chosen over a monolithic dashboard?
+**Answer**: While a monolithic Streamlit dashboard is effective for quick prototypes, real-world emergency logistics systems require:
+1. **Decoupled Client-Server Separation**: Multiple emergency coordination nodes (mobile units, district control rooms, state disaster headquarters) can consume the same centralized optimization engine via REST APIs.
+2. **Stateless Scalability**: Heavy ML and MIP solving workloads can be scaled independently of static UI asset delivery.
+3. **Strict Type Safety & Frontend Performance**: React 18 + TypeScript + Vite provides instant UI state transitions, component-level caching, and compile-time contract validation against backend OpenAPI schemas.
+
+### Q22: How does the JWT authentication and Role-Based Access Control (RBAC) work?
+**Answer**: The backend implements JSON Web Tokens (JWT) using HMAC-SHA256 (`HS256`) with salted `bcrypt` password hashing:
+- Users log in via `POST /api/auth/token` with credentials and receive a signed Bearer token containing user ID, username, and role.
+- FastAPI dependency injection (`require_role("officer")`) enforces fine-grained RBAC: `viewer` accounts can query simulation and allocation data, while only `officer` and `admin` accounts can append decisions to the audit ledger.
+- Sliding-window in-memory rate limiters protect sensitive auth endpoints (20 req/min) and computationally intensive MIP solver endpoints (10 req/min).
+
+### Q23: Why does the system enforce an automated safety interlock blocking `APPROVE` decisions below 0.60 confidence with HTTP 409?
+**Answer**: In safety-critical disaster healthcare management, AI recommendations with low confidence (e.g., severe data scarcity or extreme tail hazard values) must not be rubber-stamped. When an officer attempts to record an `APPROVE` action on a scenario where the model confidence score is $< 0.60$, the API immediately aborts with **HTTP 409 Conflict**. The officer is forced by policy to either select `MODIFY` (with clinical adjustments) or `REJECT` (escalating to manual command protocols).
+
+### Q24: How does the simulator prevent impossible casualty numbers in low-population districts?
+**Answer**: In earlier synthetic prototypes, high-magnitude disaster draws could generate simulated casualty counts exceeding the actual resident population of a district. Our engine strictly enforces a physical invariant:
+$$\text{Simulated Casualties} = \min(\text{Sampled Casualties}, \text{District Population})$$
+This guarantees that no district can ever simulate more patients than its actual WorldPop resident count, preserving physical realism.
+
+### Q25: Why is logistics cost strictly reported as a "Cost Index" rather than currency (₹ / INR)?
+**Answer**: Actual monetary costs for emergency medical transport involve complex, fluctuating variables: negotiated government carrier rates, cold-chain electricity surcharges, toll waivers, and dynamic fuel prices. Claiming exact rupee figures without verified commercial contracts would be scientifically ungrounded. We compute a standardized, unitless **Cost Index** ($\text{unit\_km} \times 15.0 + \text{active\_routes} \times 500.0$) which weights physical freight work ($15.0$ per unit-km) and dispatch route fixed overhead ($500.0$ per active route) to compare solver policies fairly.

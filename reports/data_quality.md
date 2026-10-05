@@ -9,7 +9,7 @@ This document records the provenance, schema validations, and data quality metri
 
 | Dataset | Granularity | Records | Provenance Tag | Source / Citation |
 |---|---|---|---|---|
-| **EM-DAT Disaster Events** | Event-level (India) | {len(events_df)} | `REAL` | CRED EM-DAT International Disaster Database (1900–2026) |
+| **EM-DAT Disaster Events** | Event-level (India) | {len(events_df)} | `REAL` | CRED EM-DAT International Disaster Database (1900â€“2026) |
 | **Hospital Directory** | Facility-level (MH) | {len(mh_fac):,} | `REAL` | National Health Portal India (data.gov.in) |
 | **Statewise ICU Beds** | State-level anchor | 36 states | `REAL` | Kapoor et al. (2020) / NHP ICU Bed Audit |
 | **WorldPop Population** | 1km raster / Zonal | {len(pop_df)} districts | `REAL` | WorldPop 2020 Constrained Population Grid |
@@ -35,7 +35,7 @@ This document records the provenance, schema validations, and data quality metri
 - **Public vs Private Facilities**:
   - Public facilities: **{(mh_fac['sector'] == 'Public').sum():,}** ({(mh_fac['sector'] == 'Public').mean() * 100:.1f}%)
   - Private facilities: **{(mh_fac['sector'] == 'Private').sum():,}** ({(mh_fac['sector'] == 'Private').mean() * 100:.1f}%)
-- **Bed Field Disclosure**: `Total_Num_Beds` is populated and valid (1–5000) for only ~32 facilities in Maharashtra. Direct use of `Total_Num_Beds` as district bed count is strictly prohibited due to sparsity; bed capacity is estimated via state-level ICU bed anchoring.
+- **Bed Field Disclosure**: `Total_Num_Beds` is populated and valid (1â€“5000) for only ~32 facilities in Maharashtra. Direct use of `Total_Num_Beds` as district bed count is strictly prohibited due to sparsity; bed capacity is estimated via state-level ICU bed anchoring.
 
 ### C. District Healthcare & ICU Capacity (`district_capacity.csv`)
 - **State ICU Anchor**: **11,587 total ICU beds** (2,572 public / 9,015 private).

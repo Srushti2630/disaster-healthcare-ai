@@ -1,25 +1,61 @@
-# Environment & Caches
+# ================================
+# Python environment & caches
+# ================================
 .venv/
 venv/
 env/
 __pycache__/
-*.pyc
+*.py[cod]
 .pytest_cache/
 .DS_Store
 
-# Large raw datasets (>50 MB or raw archives)
+# ================================
+# Environment / secrets
+# ================================
+.env
+.env.*
+!.env.example
+
+# ================================
+# Frontend
+# ================================
+frontend/node_modules/
+frontend/dist/
+frontend/node_modules/.vite/
+.vite/
+
+# ================================
+# Large raw datasets
+# ================================
 data/raw/*.zip
 data/raw/*.tif
 data/raw/*.xlsx
+
+# ================================
+# Intermediate/generated data
+# ================================
 data/interim/*
 !data/interim/.gitkeep
+
+# Keep processed data if intentionally versioned
 !data/processed/.gitkeep
 
-# Machine learning model artifacts (>50 MB)
+# ================================
+# ML model artifacts
+# ================================
 models/*.joblib
 !models/.gitkeep
 
-# Output logs and temporary files
+# ================================
+# Databases
+# ================================
+*.db
+*.sqlite
+*.sqlite3
+
+# ================================
+# Logs / temporary files
+# ================================
 *.log
 scratch/
 reports/test_report.*

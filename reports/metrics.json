@@ -19,11 +19,11 @@
       "accuracy_within_half_order_of_magnitude_pct": 20.5
     },
     "Random_Forest": {
-      "test_mae_log": 3.3398,
-      "test_rmse_log": 4.0807,
-      "test_r2": -0.0289,
-      "test_spearman_rho": 0.2933,
-      "accuracy_within_half_order_of_magnitude_pct": 21.8
+      "test_mae_log": 3.3204,
+      "test_rmse_log": 4.0578,
+      "test_r2": -0.0174,
+      "test_spearman_rho": 0.3078,
+      "accuracy_within_half_order_of_magnitude_pct": 23.1
     },
     "XGBoost": {
       "test_mae_log": 3.0908,
