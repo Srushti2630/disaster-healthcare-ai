@@ -128,6 +128,10 @@ class InMemoryRateLimiter:
         self.requests: Dict[str, List[float]] = defaultdict(list)
         self.lock = threading.Lock()
 
+    def reset(self):
+        with self.lock:
+            self.requests.clear()
+
     def check(self, key: str):
         now = time.time()
         with self.lock:
@@ -144,6 +148,10 @@ class InMemoryRateLimiter:
 login_limiter = InMemoryRateLimiter(max_requests=10, window_seconds=60)
 simulate_limiter = InMemoryRateLimiter(max_requests=30, window_seconds=60)
 
+def reset_rate_limiters():
+    login_limiter.reset()
+    simulate_limiter.reset()
+
 def rate_limit_login(request: Request):
     ip = request.client.host if request.client else "127.0.0.1"
     login_limiter.check(f"login:{ip}")
@@ -151,3 +159,4 @@ def rate_limit_login(request: Request):
 def rate_limit_simulate(request: Request):
     ip = request.client.host if request.client else "127.0.0.1"
     simulate_limiter.check(f"simulate:{ip}")
+
