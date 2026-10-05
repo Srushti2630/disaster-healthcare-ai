@@ -1,9 +1,10 @@
 """Configuration settings for Disaster Healthcare AI API."""
 from pathlib import Path
 from typing import List, Union
+import os
+import json
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-import json
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -24,7 +25,30 @@ class Settings(BaseSettings):
     # Database & Security
     DATABASE_URL: str = "sqlite:///./disaster_healthcare.db"
     SECRET_KEY: str = "disaster-healthcare-ai-super-secret-key-change-in-prod"
+    JWT_SECRET: Union[str, None] = None
+    ADMIN_PASSWORD: Union[str, None] = None
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 120
+
+    @property
+    def get_jwt_secret(self) -> str:
+        return self.JWT_SECRET or self.SECRET_KEY
+
+    def validate_security(self):
+        """Validate security settings: fail startup in non-development mode if secrets are missing or default."""
+        env_val = os.getenv("ENV") or os.getenv("APP_ENV") or self.APP_ENV or "development"
+        env_lower = env_val.strip().lower()
+        if env_lower not in ["development", "dev", "test", "testing"]:
+            effective_jwt = self.JWT_SECRET or self.SECRET_KEY
+            is_default = (
+                not effective_jwt or
+                "change-in-prod" in effective_jwt or
+                "change-this" in effective_jwt or
+                effective_jwt == "disaster-healthcare-ai-super-secret-key-change-in-prod"
+            )
+            if is_default or not self.JWT_SECRET:
+                raise ValueError("JWT_SECRET environment variable must be explicitly configured in non-development mode.")
+            if not self.ADMIN_PASSWORD:
+                raise ValueError("ADMIN_PASSWORD environment variable must be explicitly configured in non-development mode.")
 
     # CORS configuration
     CORS_ORIGINS: Union[List[str], str] = Field(

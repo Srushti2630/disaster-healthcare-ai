@@ -231,3 +231,17 @@ def test_tamper_detection_flags_modified_record(client):
     assert v_data["broken_block"] is not None
     assert v_data["broken_block"]["row_index"] == 2
     assert v_data["broken_block"]["error_type"] in ["BLOCK_TAMPERING_DETECTED", "PREV_HASH_MISMATCH"]
+
+def test_security_validation_fails_in_production_without_secrets(monkeypatch):
+    """Startup validation fails in non-development mode if ADMIN_PASSWORD or JWT_SECRET is missing."""
+    from api.config import Settings
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.delenv("ENV", raising=False)
+    prod_settings = Settings(APP_ENV="production", JWT_SECRET=None, ADMIN_PASSWORD=None)
+    with pytest.raises(ValueError, match="JWT_SECRET"):
+        prod_settings.validate_security()
+
+    prod_settings2 = Settings(APP_ENV="production", JWT_SECRET="valid-prod-secret", ADMIN_PASSWORD=None)
+    with pytest.raises(ValueError, match="ADMIN_PASSWORD"):
+        prod_settings2.validate_security()
+

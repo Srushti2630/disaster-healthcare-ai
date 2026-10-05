@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 def create_app() -> FastAPI:
     """Create and configure FastAPI application instance."""
+    settings.validate_security()
+
     app = FastAPI(
         title="Disaster Healthcare AI Decision-Support API",
         description=(
