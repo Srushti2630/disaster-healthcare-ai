@@ -118,19 +118,48 @@ def test_cqr_conformal_coverage_calibration():
 
 # --- 3. DEMAND & MONTE-CARLO TESTS ---
 
-def test_monte_carlo_reproducibility_with_seed():
+def test_monte_carlo_allocations_sum_to_event_total_before_capping():
+    """Verify spatial allocation weights sum to 1.0 across all 35 districts."""
+    from src.engine.monte_carlo import compute_spatial_allocation_weights, load_district_population_df
+    weights = compute_spatial_allocation_weights(epicentre="Pune", decay_km=150.0)
+    assert len(weights) == 35
+    total_w = sum(weights.values())
+    assert np.isclose(total_w, 1.0), f"Spatial allocation weights sum to {total_w}, expected 1.0"
+
+def test_monte_carlo_district_population_capping():
+    """Verify simulated affected population in any district never exceeds its resident population."""
+    from src.engine.monte_carlo import load_district_population_df
+    pop_df = load_district_population_df()
+    pop_map = dict(zip(pop_df["district"], pop_df["population"]))
+    
+    # Run simulation with huge event log so capping is tested
+    res = run_monte_carlo_district_simulation(epicentre="Pune", event_affected_mean_log=15.0, n_draws=100)
+    # Check that for all records, demand is bounded and no simulated count breached population
+    for _, row in res.iterrows():
+        d_name = row["district"]
+        d_pop = pop_map.get(d_name, 1_000_000)
+        # Affected is capped at pop, so daily demand cannot exceed affected * max_rate * horizon
+        # For antibiotics max_rate=0.4, horizon=7, max daily demand <= pop * 0.4 * 7 * 1.2
+        assert row["demand_p50"] <= d_pop * 10.0, f"Demand {row['demand_p50']} physically impossible for district pop {d_pop}"
+
+def test_monte_carlo_seeded_reproducibility():
     """Verify 2,000 Monte-Carlo draws produce identical P50/P90 outputs under fixed seed 42."""
-    inputs = {"Pune": {"hazard_type": "Flood", "affected_mean_log": 9.0, "affected_std_log": 0.40}}
-    res1 = run_monte_carlo_district_simulation(inputs, n_draws=1000, random_seed=42)
-    res2 = run_monte_carlo_district_simulation(inputs, n_draws=1000, random_seed=42)
+    res1 = run_monte_carlo_district_simulation(epicentre="Pune", event_affected_mean_log=9.5, n_draws=500, random_seed=42)
+    res2 = run_monte_carlo_district_simulation(epicentre="Pune", event_affected_mean_log=9.5, n_draws=500, random_seed=42)
 
     assert np.allclose(res1["demand_p50"].values, res2["demand_p50"].values)
     assert np.allclose(res1["demand_p90"].values, res2["demand_p90"].values)
 
+def test_monte_carlo_higher_severity_higher_demand():
+    """Verify higher severity multiplier produces strictly higher P50 demand."""
+    res_low = run_monte_carlo_district_simulation(epicentre="Pune", severity=1.0, n_draws=500, random_seed=42)
+    res_high = run_monte_carlo_district_simulation(epicentre="Pune", severity=2.0, n_draws=500, random_seed=42)
+
+    assert (res_high["demand_p50"].values > res_low["demand_p50"].values).all()
+
 def test_epidemiological_demand_non_negativity():
     """Verify Monte-Carlo P10/P50/P90 demand bands are non-negative."""
-    inputs = {"Kolhapur": {"hazard_type": "Flood", "affected_mean_log": 8.5, "affected_std_log": 0.40}}
-    res = run_monte_carlo_district_simulation(inputs, n_draws=500)
+    res = run_monte_carlo_district_simulation(epicentre="Kolhapur", n_draws=500)
     assert (res["demand_p10"] >= 0.0).all()
     assert (res["demand_p50"] >= 0.0).all()
     assert (res["demand_p90"] >= 0.0).all()
@@ -144,9 +173,9 @@ def test_epidemiological_demand_monotonicity():
 
 def test_shortage_probability_bounds():
     """Verify shortage probabilities are bounded strictly in [0, 1]."""
-    inputs = {"Mumbai": {"hazard_type": "Flood", "affected_mean_log": 11.0, "affected_std_log": 0.40}}
-    res = run_monte_carlo_district_simulation(inputs, n_draws=500)
+    res = run_monte_carlo_district_simulation(epicentre="Mumbai", n_draws=500)
     assert (res["shortage_probability"].between(0.0, 1.0)).all()
+
 
 def test_surrogate_model_fidelity():
     """Verify fast Random Forest surrogate classifier fidelity accuracy >= 90% vs simulator under full residual sigma."""

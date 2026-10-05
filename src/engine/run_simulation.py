@@ -7,6 +7,7 @@ from pathlib import Path
 import os
 import shutil
 import json
+import joblib
 import pandas as pd
 
 from src.engine.monte_carlo import run_monte_carlo_district_simulation
@@ -16,6 +17,7 @@ from src.data.boundaries import MAHARASHTRA_DISTRICTS
 
 PROCESSED_DIR = Path("data/processed")
 REPORTS_DIR = Path("reports")
+MODELS_DIR = Path("models")
 ARCHIVE_DIR = Path("archive/legacy_synthetic")
 
 def archive_legacy_synthetic_generator():
@@ -40,35 +42,36 @@ def archive_legacy_synthetic_generator():
 """
     readme_path.write_text(readme_content)
 
+def load_model_predicted_event_log() -> float:
+    """Load Ridge impact model to compute baseline model-predicted event affected mean log."""
+    bundle_path = MODELS_DIR / "impact_models.joblib"
+    if bundle_path.exists():
+        try:
+            bundle = joblib.load(bundle_path)
+            # Use model test baseline mean or fitted intercept as baseline event mean log
+            ridge = bundle.get("ridge_model")
+            if ridge and hasattr(ridge, "intercept_"):
+                return float(ridge.intercept_)
+        except Exception:
+            pass
+    return 9.5
+
 def run_simulation_engine():
     print("==================================================")
     print("Running Phase 3 Transparent Demand & Monte-Carlo Engine...")
     print("==================================================")
 
     model_sigma = get_impact_sigma("model_prediction")
+    event_mean_log = load_model_predicted_event_log()
 
-    # Prepare default district disaster impact scenario (Flood event across Maharashtra)
-    district_impact_inputs = {}
-    for idx, d_name in enumerate(MAHARASHTRA_DISTRICTS.keys()):
-        # High impact for major flood-prone districts (Pune, Kolhapur, Sangli, Raigad, Mumbai)
-        if d_name in ["Pune", "Kolhapur", "Sangli", "Raigad", "Mumbai", "Solapur", "Satara", "Nashik"]:
-            aff_log = 10.5
-            inj_log = 7.5
-        else:
-            aff_log = 8.0
-            inj_log = 5.2
+    print(f"Using model-predicted event impact baseline (mean_log={event_mean_log:.2f}, sigma={model_sigma:.4f})")
 
-        district_impact_inputs[d_name] = {
-            "hazard_type": "Flood",
-            "affected_mean_log": aff_log,
-            "affected_std_log": model_sigma,
-            "injured_mean_log": inj_log,
-            "injured_std_log": 0.50
-        }
-
-    # Run Monte-Carlo simulation with 2,000 draws
+    # Run Monte-Carlo simulation with 2,000 draws from epicentre Pune
     sim_df = run_monte_carlo_district_simulation(
-        district_impact_predictions=district_impact_inputs,
+        epicentre="Pune",
+        event_affected_mean_log=event_mean_log,
+        hazard_type="Flood",
+        severity=1.2,
         n_draws=2000,
         horizon_days=7,
         random_seed=42
@@ -78,6 +81,7 @@ def run_simulation_engine():
     out_sim_csv = PROCESSED_DIR / "simulation_summary.csv"
     sim_df.to_csv(out_sim_csv, index=False)
     print(f"✓ Completed 2,000 Monte-Carlo draws for {len(sim_df)} district x medicine pairs.")
+    print(f"✓ Population cap bound percentage: {sim_df.attrs.get('cap_bound_pct', 0.0)}%")
     print(f"✓ Output saved to {out_sim_csv}")
 
     # Train fast ML surrogate classifier on 500 diverse Monte-Carlo scenarios

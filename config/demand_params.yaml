@@ -71,3 +71,6 @@ stock_norms:
     mid: 5.0
     max: 7.0
   beds_surge_multiplier: 10.0  # units of medicine available per hospital bed
+
+spatial_decay_km: 150.0  # ASSUMED spatial impact decay distance from epicentre
+
