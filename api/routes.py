@@ -1,6 +1,7 @@
 from typing import Any, Dict, Optional
 from fastapi import APIRouter, Request, HTTPException, status, Depends
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from pathlib import Path
 
 from api.models import User
 from api.auth import require_role, rate_limit_simulate
@@ -8,12 +9,14 @@ from api.auth import require_role, rate_limit_simulate
 from api.schemas import (
     DistrictListResponse, MetricsResponse, BacktestResponse, BaselineResponse,
     ImpactPredictionRequest, ImpactPredictionResponse,
+    LocalExplanationResponse, GlobalExplanationResponse,
     SimulationRequest, SimulationResponse,
     AllocationRequest, AllocationResponse
 )
 from api.services import (
     get_districts_service, get_metrics_service, get_backtest_service, get_baselines_service,
-    predict_impact_service, simulate_service, allocate_service
+    predict_impact_service, get_global_explanation_service, explain_prediction_service,
+    simulate_service, allocate_service
 )
 
 router = APIRouter()
@@ -81,6 +84,24 @@ async def get_baselines(request: Request):
 async def predict_impact(request: Request, body: ImpactPredictionRequest):
     """Predict point casualty impact and CQR 90% uncertainty prediction interval."""
     return predict_impact_service(request.app.state, body)
+
+@router.get("/api/explain/global", response_model=GlobalExplanationResponse, summary="Get Global SHAP Feature Importances", tags=["Explainability"])
+async def get_global_explanation(request: Request):
+    """Retrieve global model feature importances and base64-encoded SHAP summary plot."""
+    return get_global_explanation_service(request.app.state)
+
+@router.get("/api/explain/summary-plot", summary="Get Saved SHAP Summary Plot Image", tags=["Explainability"])
+async def get_shap_summary_plot():
+    """Return raw saved SHAP summary plot PNG image."""
+    plot_path = Path("reports/shap_summary.png")
+    if not plot_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SHAP summary plot not generated.")
+    return FileResponse(plot_path, media_type="image/png")
+
+@router.post("/api/explain", response_model=LocalExplanationResponse, summary="Explain Casualty Prediction via Ridge SHAP", tags=["Explainability"])
+async def explain_prediction(request: Request, body: ImpactPredictionRequest):
+    """Explain Ridge model prediction via exact linear decomposition (beta * z) with optional XGBoost Tree-SHAP comparison."""
+    return explain_prediction_service(request.app.state, body)
 
 @router.post("/api/simulate", response_model=SimulationResponse, summary="Execute Monte-Carlo Demand Simulation", tags=["Simulation"])
 async def simulate_scenario(

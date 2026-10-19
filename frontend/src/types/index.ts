@@ -239,3 +239,39 @@ export interface AuditVerifyResponse {
   } | null;
   message: string;
 }
+
+export interface FeatureContribution {
+  feature: string;
+  raw_feature: string;
+  feature_value?: any;
+  contribution: number;
+  direction: "positive" | "negative";
+  plain_english: string;
+}
+
+export interface LocalExplanationResponse {
+  hazard: string;
+  predicted_log: number;
+  predicted_median: number;
+  base_value: number;
+  model_name: string;
+  top_contributions: FeatureContribution[];
+  all_contributions: FeatureContribution[];
+  xgboost_comparison?: FeatureContribution[];
+  summary_sentence: string;
+  provenance: ProvenanceTag;
+}
+
+export interface GlobalFeatureImportance {
+  feature: string;
+  importance: number;
+  direction: string;
+}
+
+export interface GlobalExplanationResponse {
+  model_name: string;
+  top_features: GlobalFeatureImportance[];
+  summary_plot_url?: string;
+  summary_plot_base64?: string;
+  description: string;
+}

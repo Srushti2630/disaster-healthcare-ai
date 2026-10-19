@@ -4,6 +4,8 @@ import {
   BacktestResponse,
   BaselineResponse,
   ImpactPredictionResponse,
+  LocalExplanationResponse,
+  GlobalExplanationResponse,
   SimulationResponse,
   AllocationResponse,
   TokenResponse,
@@ -59,6 +61,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+
+  explain: (data: { hazard: string; magnitude?: number; month?: number; state?: string }) =>
+    request<LocalExplanationResponse>("/api/explain", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  getGlobalExplanation: () => request<GlobalExplanationResponse>("/api/explain/global"),
 
   simulate: (data: {
     epicentre: string;

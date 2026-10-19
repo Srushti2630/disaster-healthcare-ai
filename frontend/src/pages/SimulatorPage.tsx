@@ -6,6 +6,7 @@ import { LoadingSpinner } from "../components/LoadingSpinner";
 import { ErrorAlert } from "../components/ErrorAlert";
 import { DistrictMap } from "../components/DistrictMap";
 import { SimulationResponse, DistrictMedicineDemand } from "../types";
+import { PredictionExplanationPanel } from "../components/PredictionExplanationPanel";
 import { Play, Info, AlertTriangle, Filter } from "lucide-react";
 import {
   BarChart,
@@ -381,6 +382,13 @@ export const SimulatorPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Explain this Prediction (SHAP) Section */}
+      <PredictionExplanationPanel
+        hazard={hazard}
+        magnitude={severity}
+        month={7}
+      />
     </div>
   );
 };

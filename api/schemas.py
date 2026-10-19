@@ -128,6 +128,41 @@ class ImpactPredictionResponse(BaseModel):
     provenance: ProvenanceTag = ProvenanceTag.ESTIMATED
 
 # -------------------------------------------------------------
+# EXPLAINABILITY (SHAP) SCHEMAS
+# -------------------------------------------------------------
+class FeatureContribution(BaseModel):
+    feature: str = Field(..., description="Human-readable feature name")
+    raw_feature: str = Field(..., description="Encoded feature column name")
+    feature_value: Any = Field(default=None, description="Input value of feature")
+    contribution: float = Field(..., description="Contribution in log units (beta * z)")
+    direction: str = Field(..., description="'positive' (increases risk) or 'negative' (decreases risk)")
+    plain_english: str = Field(..., description="Plain-English explanation of this feature effect")
+
+class LocalExplanationResponse(BaseModel):
+    hazard: str
+    predicted_log: float
+    predicted_median: int
+    base_value: float = Field(..., description="Baseline log casualty intercept / mean")
+    model_name: str = Field(default="Ridge Regression (Linear Explainer)")
+    top_contributions: List[FeatureContribution] = Field(..., description="Top 6 dominant feature contributions")
+    all_contributions: List[FeatureContribution] = Field(..., description="All feature contributions")
+    xgboost_comparison: Optional[List[FeatureContribution]] = Field(default=None, description="Optional tree-SHAP contributions for comparison")
+    summary_sentence: str
+    provenance: ProvenanceTag = ProvenanceTag.ESTIMATED
+
+class GlobalFeatureImportance(BaseModel):
+    feature: str
+    importance: float
+    direction: str
+
+class GlobalExplanationResponse(BaseModel):
+    model_name: str = "Ridge Regression & XGBoost Tree-SHAP"
+    top_features: List[GlobalFeatureImportance]
+    summary_plot_url: Optional[str] = "/api/explain/summary-plot"
+    summary_plot_base64: Optional[str] = None
+    description: str
+
+# -------------------------------------------------------------
 # SIMULATE MODELS
 # -------------------------------------------------------------
 class SimulationRequest(BaseModel):
