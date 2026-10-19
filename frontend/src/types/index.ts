@@ -96,6 +96,10 @@ export interface BacktestResponse {
 export interface BaselineComparisonRow {
   method: string;
   unmet_demand_mean: number;
+  unmet_pct_mean?: number | null;
+  unmet_pct_median?: number | null;
+  unmet_pct_p75?: number | null;
+  unmet_pct_p90?: number | null;
   cost_index_mean: number;
   unit_km_mean: number;
   route_km_mean: number;
@@ -107,6 +111,8 @@ export interface BaselineResponse {
   evaluation_formula: string;
   scenarios_evaluated: number;
   results: BaselineComparisonRow[];
+  restricted_results?: BaselineComparisonRow[] | null;
+  pareto_plot_url?: string;
 }
 
 export interface ImpactPredictionResponse {

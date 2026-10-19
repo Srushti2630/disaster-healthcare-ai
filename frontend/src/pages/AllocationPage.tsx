@@ -21,6 +21,7 @@ export const AllocationPage: React.FC = () => {
   const [epicentre, setEpicentre] = useState("Pune");
   const [safetyReserveRatio, setSafetyReserveRatio] = useState(0.60);
   const [planningLevel, setPlanningLevel] = useState<"P50" | "P75" | "P90">("P50");
+  const [stratumView, setStratumView] = useState<"overall" | "restricted">("overall");
   const [allocationData, setAllocationData] = useState<AllocationResponse | null>(null);
 
   // Fetch benchmark baselines (20-scenario comparison)
@@ -318,6 +319,39 @@ export const AllocationPage: React.FC = () => {
           </p>
         </div>
 
+        {/* Stratum Selector Tabs */}
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-3">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setStratumView("overall")}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                stratumView === "overall"
+                  ? "bg-blue-600 text-white shadow-sm"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}
+            >
+              Overall (All 20 Scenarios)
+            </button>
+            <button
+              type="button"
+              onClick={() => setStratumView("restricted")}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                stratumView === "restricted"
+                  ? "bg-blue-600 text-white shadow-sm"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}
+            >
+              Shortage Scenarios (Restricted: No-Redistribution Unmet &gt; 0)
+            </button>
+          </div>
+          <span className="text-[11px] text-slate-500">
+            {stratumView === "restricted"
+              ? "Restricted strictly to scenarios where redistribution is operationally necessary"
+              : "Full 20-scenario stratified benchmark suite"}
+          </span>
+        </div>
+
         {/* Chart */}
         {chartData.length > 0 && (
           <div className="w-full h-72">
@@ -341,15 +375,19 @@ export const AllocationPage: React.FC = () => {
               <tr>
                 <th className="py-3 px-3">Method</th>
                 <th className="py-3 px-3">Unmet Demand (units)</th>
+                <th className="py-3 px-3">Unmet (% Demand: Mean)</th>
+                <th className="py-3 px-3">Unmet % (Median / P75 / P90)</th>
                 <th className="py-3 px-3">Cost Index (Logistics)</th>
-                <th className="py-3 px-3">Unit-KM</th>
                 <th className="py-3 px-3">Route-KM</th>
                 <th className="py-3 px-3">Min Coverage</th>
                 <th className="py-3 px-3">Violations</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {(allocationData?.method_comparison || baselinesData?.results || []).map((b: any, idx: number) => {
+              {(stratumView === "restricted" && baselinesData?.restricted_results
+                ? baselinesData.restricted_results
+                : (allocationData?.method_comparison || baselinesData?.results || [])
+              ).map((b: any, idx: number) => {
                 const isSCIP = b.method === "OR-Tools SCIP";
                 return (
                   <tr key={idx} className={isSCIP ? "bg-blue-50/70 font-semibold" : "hover:bg-slate-50"}>
@@ -357,11 +395,18 @@ export const AllocationPage: React.FC = () => {
                     <td className="py-2.5 px-3 text-slate-800">
                       {(b.unmet_demand || b.unmet_demand_mean).toLocaleString()}
                     </td>
+                    <td className="py-2.5 px-3 font-semibold text-slate-900">
+                      {b.unmet_pct_mean !== undefined && b.unmet_pct_mean !== null
+                        ? `${Number(b.unmet_pct_mean).toFixed(2)}%`
+                        : "—"}
+                    </td>
+                    <td className="py-2.5 px-3 text-slate-600 font-mono text-[11px]">
+                      {b.unmet_pct_median !== undefined && b.unmet_pct_median !== null
+                        ? `${b.unmet_pct_median}% / ${b.unmet_pct_p75}% / ${b.unmet_pct_p90}%`
+                        : "—"}
+                    </td>
                     <td className="py-2.5 px-3 text-slate-700 font-mono">
                       {(b.cost_index || b.cost_index_mean).toLocaleString()}
-                    </td>
-                    <td className="py-2.5 px-3 text-slate-600">
-                      {(b.unit_km || b.unit_km_mean).toLocaleString()}
                     </td>
                     <td className="py-2.5 px-3 text-slate-600">
                       {(b.route_km || b.route_km_mean).toLocaleString()} km
@@ -379,6 +424,31 @@ export const AllocationPage: React.FC = () => {
               })}
             </tbody>
           </table>
+        </div>
+
+        {/* Pareto Frontier Figure */}
+        <div className="mt-8 border-t border-slate-200 pt-6 space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+              Pareto Frontier Trade-Off Sweep (Cost Index vs Unmet Demand)
+            </h4>
+            <span className="text-[11px] text-slate-500 font-medium">
+              Multi-Objective Scalar Sweep
+            </span>
+          </div>
+          <p className="text-xs text-slate-500">
+            The Pareto frontier characterizes the empirical boundary between minimizing logistics Cost Index and eliminating unmet demand.
+          </p>
+          <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 flex justify-center">
+            <img
+              src="/api/baselines/pareto-plot"
+              alt="Pareto Frontier Sweep: Cost Index vs Unmet Demand"
+              className="max-h-96 rounded-xl object-contain bg-white shadow-sm border border-slate-200"
+              onError={(e) => {
+                (e.target as any).style.display = "none";
+              }}
+            />
+          </div>
         </div>
       </div>
     </div>

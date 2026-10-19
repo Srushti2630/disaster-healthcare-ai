@@ -98,9 +98,33 @@ export const SimulatorPage: React.FC = () => {
         <div className="text-xs text-amber-800 space-y-1">
           <p className="font-semibold">Honest Methodological Framing</p>
           <p>
-            The disaster impact prediction model <strong>ranks events by relative severity</strong> and is intended for prioritizing districts, but <strong>underestimates very large tail outliers</strong>.
-            Demand consumption rates are <ProvenanceBadge tag="ASSUMED" /> from WHO IEHK 2017 & Sphere Handbook standards. Simulated affected casualties are strictly capped at each district's real population.
+            The disaster impact prediction model <strong>ranks events by relative severity; it underestimates very large ones</strong> (historical actual/predicted ratios reach up to 1024x in CRED EM-DAT).
+            Conformal prediction intervals span multiple orders of magnitude. Demand consumption rates are <ProvenanceBadge tag="ASSUMED" /> from WHO IEHK 2017 & Sphere Handbook standards. Simulated casualties are strictly capped at each district's real population across 2,000 Monte-Carlo stochastic draws.
           </p>
+        </div>
+      </div>
+
+      {/* Shortage Probability & Risk Legend Card */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs">
+        <div>
+          <span className="font-bold text-slate-800">Monte-Carlo Shortage Risk Classification:</span>
+          <p className="text-slate-500 mt-0.5">
+            Probability that simulated surge demand exceeds local inventory across 2,000 draws.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-red-50 border border-red-200 rounded-lg">
+            <span className="w-2.5 h-2.5 rounded-full bg-red-600"></span>
+            <span className="font-bold text-red-800">High Risk (≥ 40%)</span>
+          </div>
+          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 border border-amber-200 rounded-lg">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+            <span className="font-bold text-amber-800">Medium Risk (10% - 40%)</span>
+          </div>
+          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 border border-emerald-200 rounded-lg">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-600"></span>
+            <span className="font-bold text-emerald-800">Low Risk (&lt; 10%)</span>
+          </div>
         </div>
       </div>
 
@@ -109,7 +133,7 @@ export const SimulatorPage: React.FC = () => {
         onSubmit={handleRunSimulation}
         className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-6"
       >
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
               Epicentre District
@@ -145,19 +169,31 @@ export const SimulatorPage: React.FC = () => {
             </select>
           </div>
 
-          <div>
+          <div className="md:col-span-2">
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Planning Demand Quantile
+              Planning Demand Quantile (Decision-Support Level)
             </label>
-            <select
-              value={planningLevel}
-              onChange={(e) => setPlanningLevel(e.target.value as any)}
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 focus:bg-white"
-            >
-              <option value="P50">P50 (Median Expected Demand)</option>
-              <option value="P75">P75 (Conservative Buffer)</option>
-              <option value="P90">P90 (90th Percentile Worst-Case Surge)</option>
-            </select>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {[
+                { level: "P50", title: "P50 (Median Expected)", desc: "50% confidence; baseline expected surge" },
+                { level: "P75", title: "P75 (Conservative Buffer)", desc: "75% confidence; buffers typical variance" },
+                { level: "P90", title: "P90 (Worst-Case Surge)", desc: "90% confidence; extreme tail protection" }
+              ].map((opt) => (
+                <button
+                  key={opt.level}
+                  type="button"
+                  onClick={() => setPlanningLevel(opt.level as any)}
+                  className={`p-3 rounded-xl border text-left transition-all ${
+                    planningLevel === opt.level
+                      ? "bg-blue-50 border-blue-600 text-blue-900 shadow-sm ring-1 ring-blue-600"
+                      : "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100"
+                  }`}
+                >
+                  <div className="font-bold text-xs">{opt.title}</div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">{opt.desc}</div>
+                </button>
+              ))}
+            </div>
           </div>
 
           <div>

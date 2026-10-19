@@ -97,6 +97,10 @@ class BacktestResponse(BaseModel):
 class BaselineComparisonRow(BaseModel):
     method: str
     unmet_demand_mean: float
+    unmet_pct_mean: Optional[float] = None
+    unmet_pct_median: Optional[float] = None
+    unmet_pct_p75: Optional[float] = None
+    unmet_pct_p90: Optional[float] = None
     cost_index_mean: float
     unit_km_mean: float
     route_km_mean: float
@@ -107,6 +111,8 @@ class BaselineResponse(BaseModel):
     evaluation_formula: str
     scenarios_evaluated: int
     results: List[BaselineComparisonRow]
+    restricted_results: Optional[List[BaselineComparisonRow]] = None
+    pareto_plot_url: Optional[str] = "/api/baselines/pareto-plot"
 
 # -------------------------------------------------------------
 # PREDICT IMPACT MODELS

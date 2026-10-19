@@ -81,6 +81,16 @@ async def get_baselines(request: Request):
     """Retrieve 20-scenario optimization comparison across SCIP MIP and 4 heuristic baselines."""
     return get_baselines_service(request.app.state)
 
+@router.get("/api/baselines/pareto-plot", summary="Get Optimizer Pareto Sweep Plot Image", tags=["Evaluation"])
+async def get_pareto_plot():
+    """Return Pareto frontier trade-off image between cost index and unmet demand."""
+    plot_path = Path("reports/pareto_sweep.png")
+    if not plot_path.exists():
+        plot_path = Path("reports/baseline_comparison_plot.png")
+    if not plot_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pareto plot image not found.")
+    return FileResponse(plot_path, media_type="image/png")
+
 # -------------------------------------------------------------
 # DECISION SUPPORT & SIMULATION ENDPOINTS
 # -------------------------------------------------------------
