@@ -15,8 +15,9 @@ import yaml
 from src.data.boundaries import MAHARASHTRA_DISTRICTS, normalize_district_name
 from src.data.population import TARGET_MAHARASHTRA_POP_2020
 from src.engine.demand import compute_point_demand, estimate_district_stocks
-from src.engine.monte_carlo import run_monte_carlo_district_simulation
-from src.optimise import solve_resource_allocation, load_or_compute_distance_matrix, compare_against_baselines
+from src.engine.monte_carlo import run_monte_carlo_district_simulation, generate_stratified_benchmark_scenarios
+from src.models.surrogate import generate_scenario_dataset
+from src.optimise import solve_resource_allocation, load_or_compute_distance_matrix, compare_against_baselines, compute_paired_wilcoxon_with_holm
 from src.reporting.audit import log_decision, verify_audit_log_integrity, init_audit_log
 from src.reporting.export import generate_pdf_situation_report, generate_excel_situation_report
 
@@ -313,3 +314,50 @@ def test_app_smoke_test_all_pages():
             at.radio[0].set_value(p)
             at.run()
         assert not at.exception, f"AppTest raised exception on page {p}: {at.exception}"
+
+# --- 6. STRATIFIED BENCHMARK, SURROGATE BALANCE & HOLM CORRECTION TESTS ---
+
+def test_stratified_benchmark_sampler():
+    """Verify stratified benchmark generates >= 10 scenarios per stratum (Low, Moderate, Severe) with valid metrics."""
+    scenarios = generate_stratified_benchmark_scenarios(n_per_stratum=10, random_seed=42, n_draws_per_sim=20)
+    assert len(scenarios) >= 30, f"Expected >= 30 scenarios, got {len(scenarios)}"
+    strata_counts = pd.Series([s["stratum"] for s in scenarios]).value_counts()
+    for stratum in ["Low", "Moderate", "Severe"]:
+        assert strata_counts.get(stratum, 0) >= 10, f"Stratum {stratum} has {strata_counts.get(stratum, 0)} < 10 scenarios"
+
+    for s in scenarios:
+        assert s["total_demand"] > 0
+        assert s["total_stock"] > 0
+        assert "has_shortage" in s
+        assert "cap_bound_pct" in s
+        assert s["stock_multiplier"] in [0.25, 0.5, 1.0]
+
+def test_surrogate_dataset_class_balance():
+    """Verify surrogate dataset sampling guarantees Low, Medium, and High risk are each >= 15% of rows."""
+    df = generate_scenario_dataset(n_scenarios=15, random_seed=42)
+    assert len(df) > 0
+    shares = df["risk_level"].value_counts(normalize=True).to_dict()
+    for c in ["Low", "Medium", "High"]:
+        assert c in shares, f"Class {c} missing from surrogate dataset"
+        assert shares[c] >= 0.15, f"Class {c} represents {shares[c]:.2%} < 15% of dataset"
+
+def test_holm_bonferroni_correction_and_indistinguishable_verdict():
+    """Verify Holm-Bonferroni step-down correction and indistinguishable verdict logic."""
+    mock_results = {
+        "OR-Tools SCIP": [{"unmet_pct": 2.0} for _ in range(20)],
+        "Heuristic A": [{"unmet_pct": 2.01} for _ in range(20)],
+        "Heuristic B": [{"unmet_pct": 10.0} for _ in range(20)],
+        "Heuristic C": [{"unmet_pct": 12.0} for _ in range(20)],
+        "Heuristic D": [{"unmet_pct": 15.0} for _ in range(20)]
+    }
+    analysis = compute_paired_wilcoxon_with_holm(mock_results, primary_method="OR-Tools SCIP")
+    assert "comparisons" in analysis
+    assert "best_heuristic" in analysis
+    assert "verdict" in analysis
+    comps = analysis["comparisons"]
+    for b_name in ["Heuristic A", "Heuristic B", "Heuristic C", "Heuristic D"]:
+        assert "p_value_holm" in comps[b_name]
+        assert "rank_biserial_r" in comps[b_name]
+        assert "n_nonzero" in comps[b_name]
+        assert 0.0 <= comps[b_name]["p_value_holm"] <= 1.0
+

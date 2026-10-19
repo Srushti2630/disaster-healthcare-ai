@@ -28,12 +28,10 @@ The system secures administrative and governance routes using JWT Bearer authent
 | `officer` | All `viewer` permissions + authority to submit human review decisions (`APPROVE`, `MODIFY`, `REJECT`). |
 | `admin` | Full system access, including cryptographic audit log recomputation and user administration. |
 
-### Default Seed Accounts (Development)
-| Username | Password | Role | Description |
-|---|---|---|---|
-| `admin` | `admin123` | `admin` | System Administrator |
-| `officer` | `officer123` | `officer` | District Health Officer |
-| `viewer` | `viewer123` | `viewer` | Public / NGO Observer |
+### User Accounts & Environment Seeding
+- **Development Mode (`ENV=development`)**: Pre-seeded development accounts (`admin`, `officer`, `viewer`) are initialized for local testing if `ADMIN_PASSWORD` is unset.
+- **Production Mode**: Startup strictly requires `ADMIN_PASSWORD` and `JWT_SECRET` set via environment variables. Hardcoded passwords are not accepted.
+- Initial administrator account is seeded using `ADMIN_USERNAME` (default: `admin`) and `ADMIN_PASSWORD`. Subsequent accounts are registered via `POST /api/auth/register` with admin Bearer token authorization.
 
 ---
 
