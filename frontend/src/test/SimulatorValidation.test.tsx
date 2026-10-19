@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { AuthProvider } from "../context/AuthContext";
 import { SimulatorPage } from "../pages/SimulatorPage";
 
 describe("SimulatorPage Component", () => {
@@ -9,7 +10,9 @@ describe("SimulatorPage Component", () => {
     const queryClient = new QueryClient();
     render(
       <QueryClientProvider client={queryClient}>
-        <SimulatorPage />
+        <AuthProvider>
+          <SimulatorPage />
+        </AuthProvider>
       </QueryClientProvider>
     );
 

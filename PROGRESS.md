@@ -118,9 +118,19 @@
 | Test Suite | Location | Test Count | Status | Notes |
 |---|---|---|---|---|
 | **Core Analytical Tests** | `tests/test_core.py` | 31 | **PASS** | Original analytical constraints, MC allocation/capping, CQR coverage, MIP solver, stratified sampler, class balance, Holm correction |
-| **API & Auth Tests** | `tests_api/` | 24 | **PASS** | REST endpoints, schemas, RBAC, SHA-256 ledger, security validation |
-| **Frontend Component Tests**| `frontend/src/test/*.test.tsx` | 5 | **PASS** | ProvenanceBadge, SimulatorValidation, GovernancePage |
-| **Total Test Count** | | **60** | **100% PASS** | Zero failures |
+| **API & Auth Tests** | `tests_api/` | 28 | **PASS** | REST endpoints, schemas, RBAC, SHA-256 ledger, security validation, facilities count > 4000, /api/explain (global & local), /api/stock role enforcement & simulation override |
+| **Frontend Component Tests**| `frontend/src/test/*.test.tsx` | 7 | **PASS** | ProvenanceBadge, SimulatorValidation, GovernancePage, PredictionExplanationPanel (SHAP top 6 & plain English), StockEditingTable (custom overrides & reset) |
+| **Total Test Count** | | **66** | **100% PASS** | Zero failures |
+
+---
+
+## 8. Recent Operational Enhancements
+
+1. **Facility Mapping & Terminology Integrity**: Resolved Overview facility count mapping to properly reflect > 4,000 public facilities; updated citations to "WorldPop 2020, about 100 m (3 arc-second)" and "State ICU audit (provided dataset; original publisher not stated)".
+2. **Exact Ridge Model Interpretability (SHAP)**: Implemented `GET /api/explain/global` and `POST /api/explain` serving exact linear feature decomposition ($\beta_j \cdot z_j$) and summary narrative alongside XGBoost Tree-SHAP comparison. Integrated into the Simulator UI via `PredictionExplanationPanel`.
+3. **Editable Stock Inventory (`USER-PROVIDED`)**: Added persistent per-user custom inventory endpoints (`/api/stock`) enforcing officer/coordinator/admin roles, propagated to `/api/simulate` and `/api/allocate` with provenance badging, supported by `StockEditingTable`.
+4. **Simulator UX & Stratified Allocation**: Integrated interactive planning level selector (P50/P75/P90), risk threshold legend, interval-width caveats, stratified allocation reporting, and Pareto frontier curve rendering.
+5. **Comprehensive Test Suite**: Added 4 backend API tests in `tests_api/test_api_endpoints.py` and unit tests in `frontend/src/test/ExplanationAndStock.test.tsx`.
 
 ---
 

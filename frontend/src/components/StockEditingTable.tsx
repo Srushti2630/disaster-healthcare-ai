@@ -50,7 +50,13 @@ interface StockEditingTableProps {
 }
 
 export const StockEditingTable: React.FC<StockEditingTableProps> = ({ onStockSaved }) => {
-  const { user, isOfficerOrAbove } = useAuth();
+  let isOfficerOrAbove = false;
+  try {
+    const auth = useAuth();
+    isOfficerOrAbove = auth.isOfficerOrAbove;
+  } catch {
+    isOfficerOrAbove = false;
+  }
   const [districtFilter, setDistrictFilter] = useState<string>("All");
   const [medicineFilter, setMedicineFilter] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState<string>("");

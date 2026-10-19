@@ -193,3 +193,111 @@ def test_allocate_validation_error(client):
     res = client.post("/api/allocate", json=payload)
     assert res.status_code == 422
     assert res.json()["error"] is True
+
+def test_explain_global_endpoint(client):
+    res = client.get("/api/explain/global")
+    assert res.status_code == 200
+    data = res.json()
+    assert "top_features" in data
+    assert len(data["top_features"]) >= 5
+    assert "summary_plot_url" in data
+
+def test_explain_local_endpoint(client):
+    payload = {
+        "hazard": "Flood",
+        "magnitude": 6.5,
+        "month": 8,
+        "state": "Maharashtra"
+    }
+    res = client.post("/api/explain", json=payload)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["hazard"] == "Flood"
+    assert "predicted_log" in data
+    assert "base_value" in data
+    assert "top_contributions" in data
+    assert len(data["top_contributions"]) <= 6
+    assert len(data["top_contributions"]) > 0
+    assert "summary_sentence" in data
+    for item in data["top_contributions"]:
+        assert "feature" in item
+        assert "contribution" in item
+        assert "plain_english" in item
+        assert len(item["plain_english"]) > 5
+
+def test_stock_role_enforcement_and_validation(client):
+    from fastapi.testclient import TestClient
+    from api.main import app
+
+    # 1. Unauthenticated test client -> 401
+    with TestClient(app) as anon_client:
+        unauth_res = anon_client.post("/api/stock", json={"stocks": {"Pune": {"antibiotics": 50000}}})
+        assert unauth_res.status_code == 401
+
+    # 2. Viewer role -> 403
+    with TestClient(app) as viewer_client:
+        viewer_client.post("/api/auth/register", json={
+            "email": "viewer_stock_test@mahadisaster.gov.in",
+            "password": "ViewerPassword123!",
+            "role": "viewer"
+        })
+        login_res = viewer_client.post("/api/auth/login", json={
+            "email": "viewer_stock_test@mahadisaster.gov.in",
+            "password": "ViewerPassword123!"
+        })
+        token = login_res.json()["access_token"]
+        viewer_client.headers["Authorization"] = f"Bearer {token}"
+        forbidden_res = viewer_client.post("/api/stock", json={"stocks": {"Pune": {"antibiotics": 50000}}})
+        assert forbidden_res.status_code == 403
+
+    # 3. Validation error on empty payload
+    empty_res = client.post("/api/stock", json={})
+    assert empty_res.status_code == 400
+
+    # 4. Officer / Admin role (from client fixture) -> 200
+    valid_res = client.post("/api/stock", json={
+        "stocks": {
+            "Pune": {
+                "antibiotics": 75000.0,
+                "ors": 150000.0
+            }
+        }
+    })
+    assert valid_res.status_code == 200
+    data = valid_res.json()
+    assert data["provenance"] == "USER-PROVIDED"
+    assert data["stocks"]["Pune"]["antibiotics"] == 75000.0
+    assert data["stocks"]["Pune"]["ors"] == 150000.0
+
+def test_stock_used_in_simulate(client):
+    # Set custom stock for Pune antibiotics
+    client.post("/api/stock", json={
+        "stocks": {
+            "Pune": {
+                "antibiotics": 99999.0
+            }
+        }
+    })
+
+    sim_res = client.post("/api/simulate", json={
+        "epicentre": "Pune",
+        "hazard": "Flood",
+        "severity": 1.0,
+        "planning_level": "P50"
+    })
+    assert sim_res.status_code == 200
+    sim_data = sim_res.json()
+    
+    # Locate Pune antibiotics in simulation results
+    pune_antibiotics = next(
+        (r for r in sim_data["results"] if r["district"] == "Pune" and r["medicine"] == "antibiotics"),
+        None
+    )
+    assert pune_antibiotics is not None
+    assert pune_antibiotics["available_stock"] == 99999.0
+    assert pune_antibiotics["provenance"] == "USER-PROVIDED"
+
+    # Reset custom stock
+    del_res = client.delete("/api/stock")
+    assert del_res.status_code == 200
+    assert del_res.json()["total_records"] == 0
