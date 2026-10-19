@@ -6,7 +6,7 @@ calculates P10/P50/P90 demand bands per district x medicine, computes exact P(de
 and assigns Low/Medium/High shortage risk levels.
 """
 from pathlib import Path
-from typing import Dict, Optional, Tuple, Any
+from typing import Dict, Optional, Tuple, Any, List
 import numpy as np
 import pandas as pd
 
@@ -201,6 +201,141 @@ def run_monte_carlo_district_simulation(
     summary_df.attrs["total_allocations_count"] = total_allocations_count
     summary_df.attrs["cap_bound_pct"] = round((cap_bound_count / max(1, total_allocations_count)) * 100.0, 2)
     return summary_df
+
+def load_emdat_affected_strata() -> Dict[str, np.ndarray]:
+    """
+    Load empirical EM-DAT total_affected counts partitioned into low, moderate, and severe strata.
+    Strata boundaries:
+      - Low: [1e3, 1e4)
+      - Moderate: [1e4, 1e6)
+      - Severe: [1e6, +inf)
+    """
+    emdat_path = PROCESSED_DIR / "emdat_events.csv"
+    if emdat_path.exists():
+        df = pd.read_csv(emdat_path)
+        valid = df["total_affected"].dropna()
+        valid = valid[valid > 0].values
+    else:
+        valid = np.array([])
+
+    low = valid[(valid >= 1e3) & (valid < 1e4)]
+    if len(low) < 5:
+        low = np.linspace(1e3, 9999, 30)
+
+    mod = valid[(valid >= 1e4) & (valid < 1e6)]
+    if len(mod) < 5:
+        mod = np.geomspace(1e4, 9.9e5, 30)
+
+    sev = valid[valid >= 1e6]
+    if len(sev) < 5:
+        sev = np.geomspace(1e6, 2e7, 30)
+
+    return {
+        "Low": np.sort(low),
+        "Moderate": np.sort(mod),
+        "Severe": np.sort(sev)
+    }
+
+def generate_stratified_benchmark_scenarios(
+    n_per_stratum: int = 12,
+    stock_multipliers: Tuple[float, ...] = (0.25, 0.5, 1.0),
+    random_seed: int = 42,
+    n_draws_per_sim: int = 100
+) -> List[Dict[str, Any]]:
+    """
+    Generate stratified benchmark scenarios across empirical EM-DAT affected-count strata
+    (Low: 10^3-10^4, Moderate: 10^4-10^6, Severe: 10^6+), at multiple stock multipliers
+    (0.25, 0.5, 1.0 of baseline estimated stock), across several epicentres and hazard types.
+    Guarantees at least n_per_stratum scenarios per stratum.
+    """
+    strata_data = load_emdat_affected_strata()
+    districts = list(MAHARASHTRA_DISTRICTS.keys())
+    diverse_epicentres = [
+        "Pune", "Nagpur", "Mumbai", "Nashik", "Chhatrapati Sambhajinagar", 
+        "Amravati", "Kolhapur", "Solapur", "Thane", "Nanded"
+    ]
+    # Filter to existing district keys
+    diverse_epicentres = [d for d in diverse_epicentres if d in MAHARASHTRA_DISTRICTS] or districts[:5]
+    hazards = ["Flood", "Storm", "Epidemic", "Earthquake", "Extreme temp"]
+    
+    base_stocks = estimate_district_stocks()
+    scenarios = []
+    scen_id = 0
+
+    for stratum_name in ["Low", "Moderate", "Severe"]:
+        emp_vals = strata_data[stratum_name]
+        for i in range(n_per_stratum):
+            stock_mult = float(stock_multipliers[i % len(stock_multipliers)])
+            q_pos = (i + 0.5) / n_per_stratum
+            event_total = float(np.quantile(emp_vals, q_pos))
+            event_mean_log = float(np.log1p(event_total))
+            
+            epi = diverse_epicentres[(scen_id + i) % len(diverse_epicentres)]
+            hazard = hazards[(scen_id + i) % len(hazards)]
+            
+            scaled_stocks = {
+                d: {m: max(1.0, round(qty * stock_mult, 1)) for m, qty in meds.items()}
+                for d, meds in base_stocks.items()
+            }
+            
+            sim_seed = random_seed + scen_id * 17
+            sim_df = run_monte_carlo_district_simulation(
+                epicentre=epi,
+                event_affected_mean_log=event_mean_log,
+                hazard_type=hazard,
+                district_stocks=scaled_stocks,
+                n_draws=n_draws_per_sim,
+                random_seed=sim_seed
+            )
+            
+            reg_dem = {}
+            reg_stk = {}
+            reg_risk = {}
+            tot_dem = 0.0
+            tot_stk = 0.0
+            has_shortage = False
+            
+            for _, row in sim_df.iterrows():
+                d = str(row["district"])
+                m = str(row["medicine"])
+                if d not in reg_dem:
+                    reg_dem[d] = {}
+                    reg_stk[d] = {}
+                    reg_risk[d] = {}
+                d_val = float(row["demand_p50"])
+                s_val = float(row["available_stock"])
+                reg_dem[d][m] = d_val
+                reg_stk[d][m] = s_val
+                reg_risk[d][m] = str(row["risk_level"])
+                tot_dem += d_val
+                tot_stk += s_val
+                if d_val > s_val:
+                    has_shortage = True
+                    
+            cap_bound_count = int(sim_df.attrs.get("cap_bound_count", 0))
+            total_allocations = int(sim_df.attrs.get("total_allocations_count", 1))
+            cap_bound_pct = float(sim_df.attrs.get("cap_bound_pct", 0.0))
+            
+            scenarios.append({
+                "scenario_id": scen_id,
+                "stratum": stratum_name,
+                "stock_multiplier": stock_mult,
+                "epicentre": epi,
+                "hazard_type": hazard,
+                "event_total_drawn": round(event_total, 1),
+                "demands": reg_dem,
+                "stocks": reg_stk,
+                "risks": reg_risk,
+                "total_demand": round(tot_dem, 1),
+                "total_stock": round(tot_stk, 1),
+                "has_shortage": has_shortage,
+                "cap_bound_count": cap_bound_count,
+                "total_allocations": total_allocations,
+                "cap_bound_pct": cap_bound_pct
+            })
+            scen_id += 1
+
+    return scenarios
 
 if __name__ == "__main__":
     res_df = run_monte_carlo_district_simulation(n_draws=2000)

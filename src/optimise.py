@@ -7,6 +7,7 @@ import os
 os.environ["MPLCONFIGDIR"] = "/tmp/matplotlib"
 
 from pathlib import Path
+from typing import Dict, List, Any, Optional, Tuple
 import json
 import time
 import matplotlib
@@ -382,65 +383,138 @@ def solve_greedy_largest_surplus_baseline(region_demands: dict, region_stocks: d
                     break
     return pd.DataFrame(recs) if recs else pd.DataFrame(columns=cols)
 
-def compare_against_baselines(sim_summary_path: Path = None, n_scenarios: int = 20):
+
+def compute_paired_wilcoxon_with_holm(
+    results: Dict[str, List[Dict[str, Any]]],
+    primary_method: str = "OR-Tools SCIP"
+) -> Dict[str, Any]:
     """
-    Evaluate 5 allocation methods across 20 Monte-Carlo scenarios (P50/P90 demand draws).
-    Saves reports/baseline_comparison.csv and reports/baseline_comparison_plot.png.
+    Compute paired Wilcoxon signed-rank tests restricted strictly to non-zero differences
+    against the primary method (OR-Tools SCIP), calculate rank-biserial effect sizes,
+    and apply Holm-Bonferroni step-down correction across baseline comparisons.
     """
-    from src.engine.monte_carlo import run_monte_carlo_district_simulation
-    from src.engine.demand import get_impact_sigma
+    from scipy.stats import wilcoxon
+
+    primary_unmet = np.array([r["unmet_pct"] for r in results[primary_method]])
+    comparisons = {}
+    unadj_p_list = []
+    baseline_names = [m for m in results if m != primary_method]
+
+    for b_name in baseline_names:
+        b_unmet = np.array([r["unmet_pct"] for r in results[b_name]])
+        diff = b_unmet - primary_unmet
+        nonzero_mask = np.abs(diff) > 1e-6
+        d_nonzero = diff[nonzero_mask]
+        n_nz = len(d_nonzero)
+
+        if n_nz == 0:
+            comparisons[b_name] = {
+                "n_nonzero": 0,
+                "W_stat": 0.0,
+                "p_value_unadjusted": 1.0,
+                "rank_biserial_r": 0.0,
+                "r_z": 0.0
+            }
+            unadj_p_list.append((b_name, 1.0))
+            continue
+
+        try:
+            w_res = wilcoxon(d_nonzero, alternative="two-sided", mode="exact" if n_nz <= 25 else "auto")
+            w_stat = float(w_res.statistic)
+            p_val = float(w_res.pvalue)
+        except Exception:
+            w_res = wilcoxon(d_nonzero, alternative="two-sided")
+            w_stat = float(w_res.statistic)
+            p_val = float(w_res.pvalue)
+
+        abs_d = np.abs(d_nonzero)
+        ranks = pd.Series(abs_d).rank(method="average").values
+        w_plus = float(np.sum(ranks[d_nonzero > 0]))
+        w_minus = float(np.sum(ranks[d_nonzero < 0]))
+        w_sum = w_plus + w_minus
+        r_rb = (w_plus - w_minus) / w_sum if w_sum > 0 else 0.0
+
+        mean_w = n_nz * (n_nz + 1) / 4.0
+        std_w = np.sqrt(n_nz * (n_nz + 1) * (2 * n_nz + 1) / 24.0)
+        z_stat = (w_plus - mean_w) / std_w if std_w > 0 else 0.0
+        r_z = z_stat / np.sqrt(n_nz) if n_nz > 0 else 0.0
+
+        comparisons[b_name] = {
+            "n_nonzero": int(n_nz),
+            "W_stat": round(w_stat, 2),
+            "p_value_unadjusted": float(p_val),
+            "rank_biserial_r": round(float(r_rb), 4),
+            "r_z": round(float(r_z), 4)
+        }
+        unadj_p_list.append((b_name, p_val))
+
+    # Holm-Bonferroni correction
+    sorted_comparisons = sorted(unadj_p_list, key=lambda x: x[1])
+    m = len(sorted_comparisons)
+    holm_adjusted = {}
+    cum_max = 0.0
+    for rank_idx, (b_name, p_val) in enumerate(sorted_comparisons):
+        k = rank_idx + 1
+        adj_p = min(1.0, (m - k + 1) * p_val)
+        cum_max = min(1.0, max(cum_max, adj_p))
+        holm_adjusted[b_name] = cum_max
+
+    for b_name in baseline_names:
+        adj_p = holm_adjusted[b_name]
+        comparisons[b_name]["p_value_holm"] = round(float(adj_p), 6)
+        comparisons[b_name]["statistically_significant"] = bool(adj_p < 0.05)
+        comparisons[b_name]["indistinguishable"] = bool(adj_p >= 0.05)
+
+    mean_unmets = {b: float(np.mean([r["unmet_pct"] for r in results[b]])) for b in baseline_names}
+    best_heuristic = min(mean_unmets, key=mean_unmets.get)
+    best_res = comparisons[best_heuristic]
+
+    if best_res["indistinguishable"]:
+        verdict = (
+            f"OR-Tools SCIP and the best heuristic ({best_heuristic}) are statistically indistinguishable "
+            f"under exact paired Wilcoxon test with Holm correction (Holm p = {best_res['p_value_holm']:.4f} >= 0.05, "
+            f"n = {best_res['n_nonzero']}, rank-biserial r = {best_res['rank_biserial_r']:.3f})."
+        )
+    else:
+        verdict = (
+            f"OR-Tools SCIP is statistically distinguishable from the best heuristic ({best_heuristic}) "
+            f"(Holm p = {best_res['p_value_holm']:.4f} < 0.05, n = {best_res['n_nonzero']}, "
+            f"rank-biserial r = {best_res['rank_biserial_r']:.3f})."
+        )
+
+    return {
+        "comparisons": comparisons,
+        "best_heuristic": best_heuristic,
+        "verdict": verdict
+    }
+
+def compare_against_baselines(
+    sim_summary_path: Path = None,
+    n_scenarios: int = 36,
+    n_per_stratum: int = 12
+):
+    """
+    Evaluate 5 allocation methods across stratified Monte-Carlo benchmark scenarios
+    (Low, Moderate, Severe casualty strata x stock multipliers 0.25, 0.5, 1.0).
+    Computes per-stratum metrics, exact paired Wilcoxon tests on non-zero differences,
+    and Holm-Bonferroni correction.
+    """
+    from src.engine.monte_carlo import generate_stratified_benchmark_scenarios
     distances_df = load_or_compute_distance_matrix()
     districts = list(MAHARASHTRA_DISTRICTS.keys())
-    model_sigma = get_impact_sigma("model_prediction")
 
     pop_df = pd.read_csv(PROCESSED_DIR / "district_population.csv")
     pop_weights = dict(zip(pop_df["district"], pop_df["population"] / pop_df["population"].sum()))
     cols = ["source_region", "dest_region", "medicine", "quantity", "distance_km", "cost", "priority", "confidence"]
 
-    rng = np.random.default_rng(42)
-    scenarios = []
-    print(f"Sampling {n_scenarios} Monte-Carlo scenarios for benchmark (mix of P50 and P90 demand draws)...")
-
-    for s_idx in range(n_scenarios):
-        h_type = str(rng.choice(["Flood", "Storm", "Epidemic", "Earthquake", "Extreme temp"]))
-        epi = str(rng.choice(districts))
-        base_mag = float(rng.uniform(7.0, 11.5))
-        draw_quantile = "P50" if s_idx < 10 else "P90"
-        
-        district_inputs = {}
-        lat1, lon1 = MAHARASHTRA_DISTRICTS[epi]["lat"], MAHARASHTRA_DISTRICTS[epi]["lon"]
-        for d in districts:
-            lat2, lon2 = MAHARASHTRA_DISTRICTS[d]["lat"], MAHARASHTRA_DISTRICTS[d]["lon"]
-            dist_km = haversine_distance(lat1, lon1, lat2, lon2)
-            aff_log = max(4.0, base_mag - 0.004 * dist_km)
-            district_inputs[d] = {
-                "hazard_type": h_type,
-                "affected_mean_log": aff_log,
-                "affected_std_log": model_sigma,
-                "injured_mean_log": max(2.0, aff_log - 2.5),
-                "injured_std_log": 0.50
-            }
-        
-        sim_df = run_monte_carlo_district_simulation(district_inputs, n_draws=100, random_seed=42 + s_idx)
-        reg_dem = {}
-        reg_stk = {}
-        reg_risk = {}
-        for _, row in sim_df.iterrows():
-            d, m = row["district"], row["medicine"]
-            if d not in reg_dem:
-                reg_dem[d] = {}
-                reg_stk[d] = {}
-                reg_risk[d] = {}
-            dem_val = float(row["demand_p50"]) if draw_quantile == "P50" else float(row["demand_p90"])
-            reg_dem[d][m] = dem_val
-            reg_stk[d][m] = float(row["available_stock"])
-            reg_risk[d][m] = str(row["risk_level"])
-            
-        scenarios.append({
-            "demands": reg_dem,
-            "stocks": reg_stk,
-            "risks": reg_risk
-        })
+    eff_n_per_stratum = max(10, n_per_stratum if n_per_stratum is not None else n_scenarios // 3)
+    print(f"Generating stratified benchmark scenarios ({eff_n_per_stratum} per stratum: Low, Moderate, Severe)...")
+    scenarios = generate_stratified_benchmark_scenarios(
+        n_per_stratum=eff_n_per_stratum,
+        stock_multipliers=(0.25, 0.5, 1.0),
+        random_seed=42,
+        n_draws_per_sim=100
+    )
 
     methods = {
         "OR-Tools SCIP": lambda dem, stk, rsk, dists: solve_resource_allocation(dem, stk, rsk, distances_df=dists)[0],
@@ -452,16 +526,31 @@ def compare_against_baselines(sim_summary_path: Path = None, n_scenarios: int = 
 
     results = {m: [] for m in methods}
     sample_plans = {}
-    scenario_demand_stock = []
+    scenario_records = []
 
-    for sc_idx, sc in enumerate(scenarios):
-        tot_dem = sum(sum(sc["demands"][d].values()) for d in sc["demands"])
-        tot_stk = sum(sum(sc["stocks"][d].values()) for d in sc["stocks"])
-        scenario_demand_stock.append({"scenario_idx": sc_idx, "total_demand": tot_dem, "total_stock": tot_stk})
+    for sc in scenarios:
+        sc_id = sc["scenario_id"]
+        tot_dem = sc["total_demand"]
+        tot_stk = sc["total_stock"]
+        scenario_records.append({
+            "scenario_id": sc_id,
+            "stratum": sc["stratum"],
+            "stock_multiplier": sc["stock_multiplier"],
+            "epicentre": sc["epicentre"],
+            "hazard_type": sc["hazard_type"],
+            "event_total_drawn": sc["event_total_drawn"],
+            "total_demand": tot_dem,
+            "total_stock": tot_stk,
+            "demand_to_stock_ratio": round(tot_dem / max(1.0, tot_stk), 4),
+            "cap_bound_pct": sc["cap_bound_pct"],
+            "has_shortage": sc["has_shortage"]
+        })
 
         for m_name, solver_fn in methods.items():
             p_df = solver_fn(sc["demands"], sc["stocks"], sc["risks"], distances_df)
             eval_metrics = evaluate_allocation_plan(p_df, sc["demands"], sc["stocks"], sc["risks"], distances_df)
+            eval_metrics["scenario_id"] = sc_id
+            eval_metrics["stratum"] = sc["stratum"]
             eval_metrics["unmet_pct"] = (eval_metrics["unmet_demand"] / max(1.0, tot_dem)) * 100.0
             eval_metrics["total_demand"] = tot_dem
             eval_metrics["total_stock"] = tot_stk
@@ -469,7 +558,11 @@ def compare_against_baselines(sim_summary_path: Path = None, n_scenarios: int = 
             if m_name not in sample_plans and len(p_df) > 0:
                 sample_plans[m_name] = p_df
 
-    from scipy.stats import wilcoxon
+    scenarios_df = pd.DataFrame(scenario_records)
+    total_alloc_count = sum(sc["total_allocations"] for sc in scenarios)
+    total_cap_count = sum(sc["cap_bound_count"] for sc in scenarios)
+    cap_bound_freq_pct = round((total_cap_count / max(1, total_alloc_count)) * 100.0, 2)
+    shortage_share_pct = round((sum(1 for sc in scenarios if sc["has_shortage"]) / len(scenarios)) * 100.0, 2)
 
     def compute_summary_table(res_dict, filter_indices=None):
         rows = []
@@ -500,37 +593,51 @@ def compare_against_baselines(sim_summary_path: Path = None, n_scenarios: int = 
     restricted_indices = [idx for idx, val in enumerate(no_redist_unmet) if val > 0]
     restricted_summary_df = compute_summary_table(results, filter_indices=restricted_indices)
 
-    # Wilcoxon signed-rank tests paired against OR-Tools SCIP
-    or_scip_unmet = np.array([r["unmet_demand"] for r in results["OR-Tools SCIP"]])
-    wilcoxon_results = {}
-    for m_name in methods:
-        if m_name == "OR-Tools SCIP":
-            continue
-        other_unmet = np.array([r["unmet_demand"] for r in results[m_name]])
-        diff = other_unmet - or_scip_unmet
-        if np.all(diff == 0):
-            w_stat, p_val = 0.0, 1.0
-        else:
-            w_stat, p_val = wilcoxon(other_unmet, or_scip_unmet)
-            w_stat, p_val = float(w_stat), float(p_val)
-        wilcoxon_results[m_name] = {"W_stat": w_stat, "p_value": round(p_val, 6)}
+    # Per-stratum metrics
+    strata_rows = []
+    for stratum_name in ["Low", "Moderate", "Severe"]:
+        stratum_indices = [i for i, sc in enumerate(scenarios) if sc["stratum"] == stratum_name]
+        for m_name, res_list in results.items():
+            sub_res = [res_list[i] for i in stratum_indices]
+            df_sub = pd.DataFrame(sub_res)
+            strata_rows.append({
+                "stratum": stratum_name,
+                "method": m_name,
+                "unmet_pct_median": round(float(df_sub["unmet_pct"].median()), 2),
+                "unmet_pct_p75": round(float(np.percentile(df_sub["unmet_pct"], 75)), 2),
+                "unmet_pct_p90": round(float(np.percentile(df_sub["unmet_pct"], 90)), 2),
+                "unmet_pct_mean": round(float(df_sub["unmet_pct"].mean()), 2),
+                "cost_mean": round(float(df_sub["cost"].mean()), 2),
+                "route_km_mean": round(float(df_sub["route_km"].mean()), 1),
+                "min_coverage_mean": round(float(df_sub["minimum_coverage"].mean()), 3),
+                "violations_mean": round(float(df_sub["violations"].mean()), 2)
+            })
+    strata_summary_df = pd.DataFrame(strata_rows)
 
-    print("\n--- Baseline Comparison Table (All 20 Scenarios) ---")
+    # Exact paired Wilcoxon tests with Holm correction
+    wilcoxon_analysis = compute_paired_wilcoxon_with_holm(results, primary_method="OR-Tools SCIP")
+
+    print(f"\n--- Baseline Comparison Table (All {len(scenarios)} Stratified Scenarios) ---")
     print(summary_df.to_string(index=False))
 
-    print(f"\n--- Restricted Scenarios Table (N={len(restricted_indices)}, No Redistribution Unmet > 0) ---")
+    print(f"\n--- Restricted Scenarios Table (N={len(restricted_indices)}/{len(scenarios)}, No Redistribution Unmet > 0) ---")
     print(restricted_summary_df.to_string(index=False))
 
-    print("\n--- Wilcoxon Signed-Rank Tests (Paired vs OR-Tools SCIP) ---")
-    for m_name, w_res in wilcoxon_results.items():
-        print(f"  OR-Tools SCIP vs {m_name}: W = {w_res['W_stat']}, p = {w_res['p_value']}")
+    print("\n--- Per-Stratum Metrics Table ---")
+    print(strata_summary_df.to_string(index=False))
+
+    print("\n--- Wilcoxon Signed-Rank Tests (Paired on Non-Zero Differences vs OR-Tools SCIP) ---")
+    for b_name, b_res in wilcoxon_analysis["comparisons"].items():
+        print(f"  OR-Tools SCIP vs {b_name}:")
+        print(f"    n_nonzero = {b_res['n_nonzero']}, W = {b_res['W_stat']}, unadj_p = {b_res['p_value_unadjusted']:.6f}, Holm_p = {b_res['p_value_holm']:.6f}")
+        print(f"    rank-biserial r = {b_res['rank_biserial_r']}, r_z = {b_res['r_z']}, indistinguishable = {b_res['indistinguishable']}")
+    print(f"\nStatistical Verdict: {wilcoxon_analysis['verdict']}")
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    comp_csv = REPORTS_DIR / "baseline_comparison.csv"
-    summary_df.to_csv(comp_csv, index=False)
-
-    rest_csv = REPORTS_DIR / "baseline_comparison_restricted.csv"
-    restricted_summary_df.to_csv(rest_csv, index=False)
+    summary_df.to_csv(REPORTS_DIR / "baseline_comparison.csv", index=False)
+    restricted_summary_df.to_csv(REPORTS_DIR / "baseline_comparison_restricted.csv", index=False)
+    strata_summary_df.to_csv(REPORTS_DIR / "baseline_comparison_strata.csv", index=False)
+    scenarios_df.to_csv(REPORTS_DIR / "baseline_scenarios_detail.csv", index=False)
 
     # Plot Unmet Demand vs Cost
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -538,13 +645,13 @@ def compare_against_baselines(sim_summary_path: Path = None, n_scenarios: int = 
     for idx, row in summary_df.iterrows():
         m_name = row["method"]
         x_val = row["cost_mean"] / 1e6
-        y_val = row["unmet_demand_mean"]
+        y_val = row["unmet_pct_mean"]
         ax.scatter(x_val, y_val, color=colors[idx % len(colors)], s=120, label=m_name, zorder=5)
         ax.annotate(m_name, (x_val, y_val), textcoords="offset points", xytext=(8, 5), ha="left", fontsize=9)
 
-    ax.set_xlabel("Mean Transport Cost (Million INR)")
-    ax.set_ylabel("Mean Unmet Demand Units")
-    ax.set_title("Multi-Objective Tradeoff: Mean Unmet Demand vs. Transport Cost (20 Scenarios)")
+    ax.set_xlabel("Mean Transport Cost Index (Millions)")
+    ax.set_ylabel("Mean Unmet Demand (% of Total Demand)")
+    ax.set_title(f"Multi-Objective Tradeoff: Unmet Demand % vs. Cost Index ({len(scenarios)} Stratified Scenarios)")
     ax.grid(True, linestyle="--", alpha=0.5)
     plt.tight_layout()
 
@@ -563,8 +670,16 @@ def compare_against_baselines(sim_summary_path: Path = None, n_scenarios: int = 
         "benchmarks": benchmarks_dict,
         "restricted_benchmarks": restricted_dict,
         "restricted_count": len(restricted_indices),
-        "wilcoxon_tests": wilcoxon_results,
-        "scenario_demand_stock": scenario_demand_stock
+        "total_scenarios": len(scenarios),
+        "shortage_scenario_share_pct": shortage_share_pct,
+        "cap_bound_frequency_pct": cap_bound_freq_pct,
+        "wilcoxon_tests": wilcoxon_analysis["comparisons"],
+        "best_heuristic": wilcoxon_analysis["best_heuristic"],
+        "statistical_verdict": wilcoxon_analysis["verdict"],
+        "scenario_demand_stock": [
+            {"scenario_idx": r["scenario_id"], "stratum": r["stratum"], "total_demand": r["total_demand"], "total_stock": r["total_stock"], "cap_bound_pct": r["cap_bound_pct"], "has_shortage": r["has_shortage"]}
+            for r in scenario_records
+        ]
     }
 
     with open(REPORTS_DIR / "allocation_summary.json", "w") as f:
@@ -574,11 +689,11 @@ def compare_against_baselines(sim_summary_path: Path = None, n_scenarios: int = 
 
 def main():
     print("==================================================")
-    print("Running Phase 4 OR-Tools SCIP Multi-Objective Optimization & 20-Scenario Benchmark...")
+    print("Running Stratified Multi-Objective Optimization & Baseline Benchmark...")
     print("==================================================")
-
-    benchmarks = compare_against_baselines(n_scenarios=20)
-    print("Phase 4 Optimization & Baseline Benchmarking complete!")
+    benchmarks = compare_against_baselines(n_per_stratum=12)
+    print("Stratified Optimization & Baseline Benchmarking complete!")
 
 if __name__ == "__main__":
     main()
+
