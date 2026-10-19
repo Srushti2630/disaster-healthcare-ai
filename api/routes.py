@@ -1,21 +1,25 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 from fastapi import APIRouter, Request, HTTPException, status, Depends
 from fastapi.responses import JSONResponse, FileResponse
 from pathlib import Path
+from sqlalchemy.orm import Session
 
 from api.models import User
+from api.database import get_db
 from api.auth import require_role, rate_limit_simulate
 
 from api.schemas import (
     DistrictListResponse, MetricsResponse, BacktestResponse, BaselineResponse,
     ImpactPredictionRequest, ImpactPredictionResponse,
     LocalExplanationResponse, GlobalExplanationResponse,
+    UpdateStockRequest, UserStockResponse,
     SimulationRequest, SimulationResponse,
     AllocationRequest, AllocationResponse
 )
 from api.services import (
     get_districts_service, get_metrics_service, get_backtest_service, get_baselines_service,
     predict_impact_service, get_global_explanation_service, explain_prediction_service,
+    save_user_stock_service, get_user_stock_service, reset_user_stock_service,
     simulate_service, allocate_service
 )
 
@@ -103,21 +107,56 @@ async def explain_prediction(request: Request, body: ImpactPredictionRequest):
     """Explain Ridge model prediction via exact linear decomposition (beta * z) with optional XGBoost Tree-SHAP comparison."""
     return explain_prediction_service(request.app.state, body)
 
+@router.post("/api/stock", response_model=UserStockResponse, summary="Upload or Edit Custom District Stocks", tags=["Inventory"])
+async def upload_or_edit_stock(
+    body: UpdateStockRequest,
+    current_user: User = Depends(require_role(["officer", "coordinator", "admin"])),
+    db: Session = Depends(get_db)
+):
+    """Upload or edit district-by-medicine stock stored per user with USER-PROVIDED provenance tag."""
+    return save_user_stock_service(db, current_user, body)
+
+@router.get("/api/stock", response_model=UserStockResponse, summary="Get User Custom Stocks", tags=["Inventory"])
+async def get_user_stock(
+    current_user: User = Depends(require_role(["officer", "coordinator", "admin", "viewer"])),
+    db: Session = Depends(get_db)
+):
+    """Retrieve active custom stocks for current user."""
+    return get_user_stock_service(db, current_user)
+
+@router.delete("/api/stock", response_model=UserStockResponse, summary="Reset Custom District Stocks", tags=["Inventory"])
+async def reset_user_stock(
+    current_user: User = Depends(require_role(["officer", "coordinator", "admin"])),
+    db: Session = Depends(get_db)
+):
+    """Clear custom stocks to revert to baseline estimated stock."""
+    return reset_user_stock_service(db, current_user)
+
+@router.post("/api/stock/reset", response_model=UserStockResponse, summary="Reset Custom District Stocks (POST alternative)", tags=["Inventory"])
+async def reset_user_stock_post(
+    current_user: User = Depends(require_role(["officer", "coordinator", "admin"])),
+    db: Session = Depends(get_db)
+):
+    """Clear custom stocks to revert to baseline estimated stock."""
+    return reset_user_stock_service(db, current_user)
+
 @router.post("/api/simulate", response_model=SimulationResponse, summary="Execute Monte-Carlo Demand Simulation", tags=["Simulation"])
 async def simulate_scenario(
     request: Request,
     body: SimulationRequest,
-    current_user: User = Depends(require_role(["officer", "coordinator", "admin"]))
+    current_user: User = Depends(require_role(["officer", "coordinator", "admin"])),
+    db: Session = Depends(get_db)
 ):
     """Execute 2,000-draw Monte-Carlo demand simulation and shortage risk classification across districts."""
     rate_limit_simulate(request)
-    return simulate_service(request.app.state, body)
+    return simulate_service(request.app.state, body, user=current_user, db=db)
 
 @router.post("/api/allocate", response_model=AllocationResponse, summary="Solve Resource Allocation MIP", tags=["Optimization"])
 async def allocate_resources(
     request: Request,
     body: AllocationRequest,
-    current_user: User = Depends(require_role(["officer", "coordinator", "admin"]))
+    current_user: User = Depends(require_role(["officer", "coordinator", "admin"])),
+    db: Session = Depends(get_db)
 ):
     """Solve multi-objective MIP resource allocation problem using Google OR-Tools SCIP solver."""
-    return allocate_service(request.app.state, body)
+    return allocate_service(request.app.state, body, user=current_user, db=db)

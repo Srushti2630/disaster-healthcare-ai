@@ -28,6 +28,20 @@ class User(Base):
 
     simulations = relationship("SimulationRecord", back_populates="user", cascade="all, delete-orphan")
     audit_events = relationship("AuditEvent", back_populates="user")
+    custom_stocks = relationship("UserCustomStock", back_populates="user", cascade="all, delete-orphan")
+
+class UserCustomStock(Base):
+    __tablename__ = "user_custom_stocks"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    district = Column(String(100), nullable=False, index=True)
+    medicine = Column(String(100), nullable=False, index=True)
+    quantity = Column(Float, nullable=False)
+    provenance = Column(String(50), default="USER-PROVIDED", nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    user = relationship("User", back_populates="custom_stocks")
 
 class SimulationRecord(Base):
     __tablename__ = "simulations"

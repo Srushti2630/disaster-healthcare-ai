@@ -6,6 +6,7 @@ import {
   ImpactPredictionResponse,
   LocalExplanationResponse,
   GlobalExplanationResponse,
+  UserStockResponse,
   SimulationResponse,
   AllocationResponse,
   TokenResponse,
@@ -94,6 +95,20 @@ export const api = {
     request<AllocationResponse>("/api/allocate", {
       method: "POST",
       body: JSON.stringify(data),
+    }),
+
+  // Stock Management (Officer Role)
+  updateStock: (data: { stocks?: Record<string, Record<string, number>>; items?: Array<{ district: string; medicine: string; quantity: number }> }) =>
+    request<UserStockResponse>("/api/stock", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  getStock: () => request<UserStockResponse>("/api/stock"),
+
+  resetStock: () =>
+    request<UserStockResponse>("/api/stock", {
+      method: "DELETE",
     }),
 
   // Auth Endpoints

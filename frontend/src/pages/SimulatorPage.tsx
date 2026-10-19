@@ -7,6 +7,7 @@ import { ErrorAlert } from "../components/ErrorAlert";
 import { DistrictMap } from "../components/DistrictMap";
 import { SimulationResponse, DistrictMedicineDemand } from "../types";
 import { PredictionExplanationPanel } from "../components/PredictionExplanationPanel";
+import { StockEditingTable } from "../components/StockEditingTable";
 import { Play, Info, AlertTriangle, Filter } from "lucide-react";
 import {
   BarChart,
@@ -382,6 +383,9 @@ export const SimulatorPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Editable District Stock Override Section */}
+      <StockEditingTable />
 
       {/* Explain this Prediction (SHAP) Section */}
       <PredictionExplanationPanel

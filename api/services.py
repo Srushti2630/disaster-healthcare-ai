@@ -2,19 +2,23 @@
 import uuid
 import base64
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 import numpy as np
 import pandas as pd
 from fastapi import HTTPException
 import joblib
+from sqlalchemy.orm import Session
 
 from api.config import settings
+from api.models import User, UserCustomStock
 from api.schemas import (
     DistrictListResponse, DistrictDetail, DistrictBedCapacity, DistrictFacilities,
     MetricsResponse, BacktestResponse, BacktestRecord, BaselineResponse, BaselineComparisonRow,
     ImpactPredictionRequest, ImpactPredictionResponse,
     FeatureContribution, LocalExplanationResponse, GlobalFeatureImportance, GlobalExplanationResponse,
+    StockItem, UpdateStockRequest, UserStockResponse,
     SimulationRequest, SimulationResponse, DistrictMedicineDemand,
     AllocationRequest, AllocationResponse, TransferRow, ConstraintCheck, MethodComparisonSummary,
     PlanningLevel, ProvenanceTag
@@ -495,7 +499,98 @@ def explain_prediction_service(app_state: Any, req: ImpactPredictionRequest) -> 
         summary_sentence=summary
     )
 
-def simulate_service(app_state: Any, req: SimulationRequest) -> SimulationResponse:
+def save_user_stock_service(db: Session, user: User, body: UpdateStockRequest) -> UserStockResponse:
+    """Save or update user custom district stocks with USER-PROVIDED provenance tag."""
+    items_to_save: List[tuple] = []
+    if body.stocks:
+        for dist, meds in body.stocks.items():
+            for med, qty in meds.items():
+                items_to_save.append((dist, med, float(qty)))
+    elif body.items:
+        for item in body.items:
+            items_to_save.append((item.district, item.medicine, float(item.quantity)))
+
+    if not items_to_save:
+        raise HTTPException(status_code=400, detail="No valid stock data provided. Pass 'stocks' dict or 'items' list.")
+
+    for dist, med, qty in items_to_save:
+        if dist not in MAHARASHTRA_DISTRICTS:
+            continue
+        existing = db.query(UserCustomStock).filter(
+            UserCustomStock.user_id == user.id,
+            UserCustomStock.district == dist,
+            UserCustomStock.medicine == med
+        ).first()
+        if existing:
+            existing.quantity = max(0.0, float(qty))
+            existing.provenance = "USER-PROVIDED"
+            existing.updated_at = datetime.now(timezone.utc)
+        else:
+            stock_rec = UserCustomStock(
+                user_id=user.id,
+                district=dist,
+                medicine=med,
+                quantity=max(0.0, float(qty)),
+                provenance="USER-PROVIDED"
+            )
+            db.add(stock_rec)
+
+    db.commit()
+
+    user_stocks = db.query(UserCustomStock).filter(UserCustomStock.user_id == user.id).all()
+    stocks_map: Dict[str, Dict[str, float]] = {}
+    for s in user_stocks:
+        if s.district not in stocks_map:
+            stocks_map[s.district] = {}
+        stocks_map[s.district][s.medicine] = float(s.quantity)
+
+    return UserStockResponse(
+        user_id=user.id,
+        total_records=len(user_stocks),
+        provenance="USER-PROVIDED",
+        stocks=stocks_map,
+        updated_at=datetime.now(timezone.utc).isoformat(),
+        message=f"Saved {len(items_to_save)} district-medicine custom stock entries (USER-PROVIDED)."
+    )
+
+def get_user_stock_service(db: Session, user: User) -> UserStockResponse:
+    """Get active custom stocks for current user."""
+    user_stocks = db.query(UserCustomStock).filter(UserCustomStock.user_id == user.id).all()
+    stocks_map: Dict[str, Dict[str, float]] = {}
+    for s in user_stocks:
+        if s.district not in stocks_map:
+            stocks_map[s.district] = {}
+        stocks_map[s.district][s.medicine] = float(s.quantity)
+
+    return UserStockResponse(
+        user_id=user.id,
+        total_records=len(user_stocks),
+        provenance="USER-PROVIDED",
+        stocks=stocks_map,
+        updated_at=datetime.now(timezone.utc).isoformat() if user_stocks else None,
+        message="Active custom stocks retrieved."
+    )
+
+def reset_user_stock_service(db: Session, user: User) -> UserStockResponse:
+    """Reset / clear user custom stocks to revert to baseline estimated stock."""
+    deleted_count = db.query(UserCustomStock).filter(UserCustomStock.user_id == user.id).delete()
+    db.commit()
+
+    return UserStockResponse(
+        user_id=user.id,
+        total_records=0,
+        provenance="USER-PROVIDED",
+        stocks={},
+        updated_at=None,
+        message=f"Reset complete: {deleted_count} user custom stock records cleared. Reverted to estimated baseline."
+    )
+
+def simulate_service(
+    app_state: Any,
+    req: SimulationRequest,
+    user: Optional[User] = None,
+    db: Optional[Session] = None
+) -> SimulationResponse:
     """Execute 2,000-draw Monte-Carlo demand simulation across Maharashtra districts."""
     if req.epicentre not in MAHARASHTRA_DISTRICTS:
         raise HTTPException(
@@ -548,6 +643,31 @@ def simulate_service(app_state: Any, req: SimulationRequest) -> SimulationRespon
     for d, meds in base_stocks.items():
         adjusted_stocks[d] = {m: round(qty * stock_multiplier, 1) for m, qty in meds.items()}
 
+    # Check for custom user-provided stocks:
+    # 1. Direct from request body if present
+    # 2. Or from database for this user
+    user_custom_map: Dict[str, Dict[str, float]] = {}
+    if req.custom_stocks:
+        user_custom_map = req.custom_stocks
+    elif user is not None and db is not None:
+        try:
+            custom_rows = db.query(UserCustomStock).filter(UserCustomStock.user_id == user.id).all()
+            for r in custom_rows:
+                if r.district not in user_custom_map:
+                    user_custom_map[r.district] = {}
+                user_custom_map[r.district][r.medicine] = float(r.quantity)
+        except Exception as e:
+            logger.warning(f"Error querying UserCustomStock: {e}")
+
+    user_provided_keys = set()
+    if user_custom_map:
+        for d, meds in user_custom_map.items():
+            if d not in adjusted_stocks:
+                adjusted_stocks[d] = {}
+            for m, qty in meds.items():
+                adjusted_stocks[d][m] = float(qty)
+                user_provided_keys.add((d, m))
+
     # Run Monte-Carlo simulation (2000 draws)
     sim_df = run_monte_carlo_district_simulation(
         district_impact_predictions=district_inputs,
@@ -562,9 +682,13 @@ def simulate_service(app_state: Any, req: SimulationRequest) -> SimulationRespon
 
     results_list = []
     for _, row in sim_df.iterrows():
+        d_name = str(row["district"])
+        m_name = str(row["medicine"])
+        prov = ProvenanceTag.USER_PROVIDED if (d_name, m_name) in user_provided_keys else ProvenanceTag.ESTIMATED_SIMULATION
+
         item = DistrictMedicineDemand(
-            district=str(row["district"]),
-            medicine=str(row["medicine"]),
+            district=d_name,
+            medicine=m_name,
             demand_p10=float(row["demand_p10"]),
             demand_p50=float(row["demand_p50"]),
             demand_p75=float(row["demand_p75"]),
@@ -574,7 +698,7 @@ def simulate_service(app_state: Any, req: SimulationRequest) -> SimulationRespon
             expected_shortage_qty=float(row["expected_shortage_qty"]),
             shortage_probability=float(row["shortage_probability"]),
             risk_level=str(row["risk_level"]),
-            provenance=ProvenanceTag.ESTIMATED_SIMULATION
+            provenance=prov
         )
         results_list.append(item)
 
@@ -590,7 +714,12 @@ def simulate_service(app_state: Any, req: SimulationRequest) -> SimulationRespon
         results=results_list
     )
 
-def allocate_service(app_state: Any, req: AllocationRequest) -> AllocationResponse:
+def allocate_service(
+    app_state: Any,
+    req: AllocationRequest,
+    user: Optional[User] = None,
+    db: Optional[Session] = None
+) -> AllocationResponse:
     """Solve inter-district resource allocation MIP problem and check constraints."""
     epicentre = req.epicentre or "Pune"
     if epicentre not in MAHARASHTRA_DISTRICTS:
@@ -602,9 +731,10 @@ def allocate_service(app_state: Any, req: AllocationRequest) -> AllocationRespon
         hazard=req.hazard or "Flood",
         severity=req.severity or 1.0,
         planning_level=req.planning_level or PlanningLevel.P50,
-        stock_adjustment_pct=req.stock_adjustment_pct or 0.0
+        stock_adjustment_pct=req.stock_adjustment_pct or 0.0,
+        custom_stocks=req.custom_stocks
     )
-    sim_res = simulate_service(app_state, sim_req)
+    sim_res = simulate_service(app_state, sim_req, user=user, db=db)
 
     # Format demands, stocks, and risks
     region_demands = {d: {} for d in MAHARASHTRA_DISTRICTS}

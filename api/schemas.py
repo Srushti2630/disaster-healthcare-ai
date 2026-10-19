@@ -8,6 +8,7 @@ class ProvenanceTag(str, Enum):
     ESTIMATED = "ESTIMATED"
     ASSUMED = "ASSUMED"
     ESTIMATED_SIMULATION = "ESTIMATED_SIMULATION"
+    USER_PROVIDED = "USER-PROVIDED"
 
 class PlanningLevel(str, Enum):
     P50 = "P50"
@@ -172,6 +173,28 @@ class SimulationRequest(BaseModel):
     affected_override: Optional[float] = Field(default=None, ge=0.0, le=150000000.0, description="Optional manual override for total affected population")
     planning_level: PlanningLevel = Field(default=PlanningLevel.P50, description="Demand quantile planning level (P50, P75, or P90)")
     stock_adjustment_pct: float = Field(default=0.0, ge=-100.0, le=500.0, description="Percentage adjustment to current medical stocks")
+    custom_stocks: Optional[Dict[str, Dict[str, float]]] = Field(default=None, description="Optional user-provided custom district stocks")
+
+# -------------------------------------------------------------
+# CUSTOM STOCK MODELS
+# -------------------------------------------------------------
+class StockItem(BaseModel):
+    district: str
+    medicine: str
+    quantity: float = Field(ge=0.0, description="Available stock quantity")
+    provenance: str = Field(default="USER-PROVIDED", description="Data provenance classification")
+
+class UpdateStockRequest(BaseModel):
+    stocks: Optional[Dict[str, Dict[str, float]]] = Field(default=None, description="Nested mapping: district -> medicine -> quantity")
+    items: Optional[List[StockItem]] = Field(default=None, description="Flat list of stock items")
+
+class UserStockResponse(BaseModel):
+    user_id: int
+    total_records: int
+    provenance: str = "USER-PROVIDED"
+    stocks: Dict[str, Dict[str, float]]
+    updated_at: Optional[str] = None
+    message: str = "Custom stock updated successfully."
 
 class DistrictMedicineDemand(BaseModel):
     district: str
@@ -208,6 +231,7 @@ class AllocationRequest(BaseModel):
     planning_level: Optional[PlanningLevel] = PlanningLevel.P50
     stock_adjustment_pct: Optional[float] = 0.0
     safety_reserve_ratio: Optional[float] = Field(default=0.60, ge=0.0, le=1.0)
+    custom_stocks: Optional[Dict[str, Dict[str, float]]] = Field(default=None, description="Optional user-provided custom district stocks")
 
 class TransferRow(BaseModel):
     source_region: str

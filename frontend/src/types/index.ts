@@ -1,4 +1,4 @@
-export type ProvenanceTag = "REAL" | "ESTIMATED" | "ASSUMED" | "ESTIMATED_SIMULATION";
+export type ProvenanceTag = "REAL" | "ESTIMATED" | "ASSUMED" | "ESTIMATED_SIMULATION" | "USER-PROVIDED";
 
 export interface DistrictBedCapacity {
   beds_low: number;
@@ -274,4 +274,20 @@ export interface GlobalExplanationResponse {
   summary_plot_url?: string;
   summary_plot_base64?: string;
   description: string;
+}
+
+export interface StockItem {
+  district: string;
+  medicine: string;
+  quantity: number;
+  provenance?: string;
+}
+
+export interface UserStockResponse {
+  user_id: number;
+  total_records: number;
+  provenance: string;
+  stocks: Record<string, Record<string, number>>;
+  updated_at?: string | null;
+  message: string;
 }
