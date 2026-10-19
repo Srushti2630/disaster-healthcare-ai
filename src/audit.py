@@ -85,56 +85,91 @@ def run_bias_and_fairness_audit():
     return bias_df
 
 def run_sensitivity_analysis():
-    """Generate Tornado chart showing impact of ASSUMED epidemiological parameters on shortage risk."""
-    params = load_demand_params()
-    base_preds = {d: {"hazard_type": "Flood", "affected_mean_log": 9.0, "affected_std_log": 0.40} for d in MAHARASHTRA_DISTRICTS.keys()}
+    """
+    Generate Tornado chart showing impact of ASSUMED epidemiological parameters,
+    spatial decay, and stock capacity on shortage risk under the new Monte-Carlo engine.
+    Variations:
+      - Spatial decay_km: 75 km / 150 km (baseline) / 300 km
+      - Overall consumption rates: +-25%
+      - Individual medicine consumption rates: +-25%
+      - Regional stock capacity: +-25%
+    """
+    from src.engine.demand import estimate_district_stocks
+    base_stocks = estimate_district_stocks()
+    base_epicentre = "Pune"
+    base_aff_log = 11.5
+    base_hazard = "Flood"
+    base_decay = 150.0
+    base_stock_mult = 0.35
 
-    base_sim = run_monte_carlo_district_simulation(base_preds, n_draws=1000, random_seed=42)
-    base_high_risk_pct = float((base_sim["risk_level"] == "High").mean() * 100)
+    def get_stocks(multiplier: float):
+        return {
+            d: {m: max(1.0, round(qty * multiplier, 1)) for m, qty in meds.items()}
+            for d, meds in base_stocks.items()
+        }
 
+    base_sim = run_monte_carlo_district_simulation(
+        epicentre=base_epicentre,
+        event_affected_mean_log=base_aff_log,
+        hazard_type=base_hazard,
+        district_stocks=get_stocks(base_stock_mult),
+        decay_km=base_decay,
+        n_draws=1000,
+        random_seed=42
+    )
+    base_high_risk_pct = float((base_sim["risk_level"] == "High").mean() * 100.0)
+
+    # Tornado variations: decay_km 75 / 150 / 300, consumption rates +-25%, stock +-25%
     variations = [
-        ("Antibiotics Rate (+50%)", 1.5, "antibiotics"),
-        ("Antibiotics Rate (-50%)", 0.5, "antibiotics"),
-        ("ORS Consumption Rate (+50%)", 1.5, "ors"),
-        ("IV Fluids Rate (+50%)", 1.5, "iv_fluids"),
-        ("Blood Units Trauma Rate (+50%)", 1.5, "blood_units"),
-        ("Hazard Severity Multiplier (+30%)", 1.3, "all"),
-        ("Spatial Decay Radius (decay_km = 75km)", 1.0, "decay_75"),
-        ("Spatial Decay Radius (decay_km = 300km)", 1.0, "decay_300"),
+        ("Spatial Decay (decay_km = 75km)", 75.0, 1.0, 1.0),
+        ("Spatial Decay (decay_km = 300km)", 300.0, 1.0, 1.0),
+        ("All Consumption Rates (+25%)", 150.0, 1.25, 1.0),
+        ("All Consumption Rates (-25%)", 150.0, 0.75, 1.0),
+        ("Antibiotics Rate (+25%)", 150.0, {"antibiotics": 1.25}, 1.0),
+        ("Antibiotics Rate (-25%)", 150.0, {"antibiotics": 0.75}, 1.0),
+        ("ORS Rate (+25%)", 150.0, {"ors": 1.25}, 1.0),
+        ("IV Fluids Rate (+25%)", 150.0, {"iv_fluids": 1.25}, 1.0),
+        ("Blood Units Rate (+25%)", 150.0, {"blood_units": 1.25}, 1.0),
+        ("Stock Capacity (+25%)", 150.0, 1.0, 1.25),
+        ("Stock Capacity (-25%)", 150.0, 1.0, 0.75),
     ]
 
     tornado_records = []
-    for label, mult, med_target in variations:
-        decay_val = 150.0
-        if med_target == "decay_75":
-            decay_val = 75.0
-        elif med_target == "decay_300":
-            decay_val = 300.0
-
-        var_preds = {d: {"hazard_type": "Flood", "affected_mean_log": np.log1p(np.expm1(9.0) * (mult if med_target == "all" else 1.0)), "affected_std_log": 0.40} for d in MAHARASHTRA_DISTRICTS.keys()}
-        v_sim = run_monte_carlo_district_simulation(var_preds, n_draws=1000, random_seed=42, decay_km=decay_val)
-        v_high_risk_pct = float((v_sim["risk_level"] == "High").mean() * 100)
+    for label, decay_val, rate_mult, stock_mult_factor in variations:
+        var_stocks = get_stocks(base_stock_mult * stock_mult_factor)
+        v_sim = run_monte_carlo_district_simulation(
+            epicentre=base_epicentre,
+            event_affected_mean_log=base_aff_log,
+            hazard_type=base_hazard,
+            district_stocks=var_stocks,
+            decay_km=decay_val,
+            consumption_rate_multipliers=rate_mult,
+            n_draws=1000,
+            random_seed=42
+        )
+        v_high_risk_pct = float((v_sim["risk_level"] == "High").mean() * 100.0)
         diff = v_high_risk_pct - base_high_risk_pct
 
         tornado_records.append({
             "parameter_variation": label,
-            "baseline_high_risk_pct": round(base_high_risk_pct, 1),
-            "varied_high_risk_pct": round(v_high_risk_pct, 1),
-            "high_risk_change_pct": round(diff, 1)
+            "baseline_high_risk_pct": round(base_high_risk_pct, 2),
+            "varied_high_risk_pct": round(v_high_risk_pct, 2),
+            "high_risk_change_pct": round(diff, 2)
         })
 
     sens_df = pd.DataFrame(tornado_records)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     sens_df.to_csv(REPORTS_DIR / "sensitivity_analysis.csv", index=False)
 
     # Plot Tornado Chart
-    plt.figure(figsize=(10, 5))
+    plt.figure(figsize=(10, 6))
     sorted_df = sens_df.sort_values("high_risk_change_pct", ascending=True)
     colors = ["crimson" if x > 0 else "navy" for x in sorted_df["high_risk_change_pct"]]
 
     plt.barh(sorted_df["parameter_variation"], sorted_df["high_risk_change_pct"], color=colors, alpha=0.85, edgecolor="black")
     plt.axvline(0, color="black", linestyle="--", linewidth=1)
-    plt.xlabel("Change in High-Risk District Percentage (%)")
-    plt.title("Tornado Sensitivity Analysis of ASSUMED Epidemiological Parameters")
+    plt.xlabel("Change in High-Risk District Percentage (% points)")
+    plt.title("Tornado Sensitivity Analysis: Spatial Decay, Consumption Rates (±25%), and Stock (±25%)")
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
 

@@ -73,7 +73,8 @@ def run_monte_carlo_district_simulation(
     n_draws: int = 2000,
     horizon_days: int = 7,
     random_seed: int = 42,
-    decay_km: Optional[float] = None
+    decay_km: Optional[float] = None,
+    consumption_rate_multipliers: Optional[Any] = None
 ) -> pd.DataFrame:
     """
     Run Monte-Carlo simulation by sampling ONE event total per draw and allocating spatially to districts.
@@ -131,7 +132,13 @@ def run_monte_carlo_district_simulation(
         rate_key = "rate_per_injured_day" if med == "blood_units" else "rate_per_affected_day"
         r_min = float(m_info[rate_key]["min"])
         r_max = float(m_info[rate_key]["max"])
-        rate_draws[med] = rng.uniform(r_min, r_max, size=n_draws)
+        c_mult = 1.0
+        if consumption_rate_multipliers is not None:
+            if isinstance(consumption_rate_multipliers, (int, float)):
+                c_mult = float(consumption_rate_multipliers)
+            elif isinstance(consumption_rate_multipliers, dict):
+                c_mult = float(consumption_rate_multipliers.get(med, 1.0))
+        rate_draws[med] = rng.uniform(r_min, r_max, size=n_draws) * c_mult
 
     # 3. Allocate to Districts and Apply Population Cap
     summary_records = []
