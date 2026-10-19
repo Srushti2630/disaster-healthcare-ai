@@ -67,13 +67,13 @@ export const OverviewPage: React.FC = () => {
         <KPICard
           title="State Population"
           value={districtsData?.total_state_population || 131936179}
-          subtitle="WorldPop 2020 1km Constrained Zonal Sum"
+          subtitle="WorldPop 2020, about 100 m (3 arc-second)"
           tag="REAL"
           icon={<Users className="w-5 h-5" />}
         />
         <KPICard
           title="Cleaned Facilities"
-          value={districts.reduce((acc, d) => acc + d.facilities.total_facilities, 0)}
+          value={districtsData?.total_cleaned_facilities ?? districtsData?.total_facilities ?? (districts.length > 0 ? districts.reduce((acc, d) => acc + (d.facilities?.total_facilities ?? d.total_facilities ?? 0), 0) : 4767)}
           subtitle="National Health Portal Directory"
           tag="REAL"
           icon={<Building2 className="w-5 h-5" />}
@@ -88,7 +88,7 @@ export const OverviewPage: React.FC = () => {
         <KPICard
           title="State ICU Beds Anchor"
           value={districtsData?.state_icu_beds_anchor || 11587}
-          subtitle="Kapoor et al. (2020) State Audit"
+          subtitle="State ICU audit (provided dataset; original publisher not stated)"
           tag="REAL"
           icon={<HeartPulse className="w-5 h-5" />}
         />

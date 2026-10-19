@@ -67,7 +67,7 @@ export const LimitationsPage: React.FC = () => {
               <tr>
                 <td className="py-3 px-3 font-semibold text-slate-900">WorldPop Population Raster</td>
                 <td className="py-3 px-3"><ProvenanceBadge tag="REAL" /></td>
-                <td className="py-3 px-3 text-slate-700">WorldPop 2020 1km Constrained Grid</td>
+                <td className="py-3 px-3 text-slate-700">WorldPop 2020, about 100 m (3 arc-second)</td>
                 <td className="py-3 px-3 text-slate-600">Raw zonal sum per district; 131.9M total vs 124.5M projection (5.97% gap reported unscaled).</td>
               </tr>
               <tr>
@@ -79,7 +79,7 @@ export const LimitationsPage: React.FC = () => {
               <tr>
                 <td className="py-3 px-3 font-semibold text-slate-900">State ICU Beds Audit</td>
                 <td className="py-3 px-3"><ProvenanceBadge tag="REAL" /></td>
-                <td className="py-3 px-3 text-slate-700">National Health Profile / Kapoor et al. (2020)</td>
+                <td className="py-3 px-3 text-slate-700">State ICU audit (provided dataset; original publisher not stated)</td>
                 <td className="py-3 px-3 text-slate-600">11,587 total state ICU beds (2,572 public / 9,015 private).</td>
               </tr>
               <tr>

@@ -24,6 +24,7 @@ export interface DistrictDetail {
   pop_density_sqkm: number;
   capacity: DistrictBedCapacity;
   facilities: DistrictFacilities;
+  total_facilities?: number;
   provenance: ProvenanceTag;
 }
 
@@ -32,6 +33,8 @@ export interface DistrictListResponse {
   total_state_population: number;
   state_hospital_beds_anchor: number;
   state_icu_beds_anchor: number;
+  total_facilities?: number;
+  total_cleaned_facilities?: number;
   districts: DistrictDetail[];
 }
 

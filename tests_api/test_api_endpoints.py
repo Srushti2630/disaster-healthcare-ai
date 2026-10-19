@@ -53,6 +53,16 @@ def test_get_districts_endpoint(client):
     assert sample["facilities"]["provenance"] == "REAL"
     assert sample["provenance"] == "REAL"
 
+def test_facilities_total_above_4000(client):
+    res = client.get("/api/districts")
+    assert res.status_code == 200
+    data = res.json()
+    total_fac = data.get("total_cleaned_facilities") or data.get("total_facilities")
+    assert total_fac is not None
+    assert total_fac > 4000
+    sum_facilities = sum(d["facilities"]["total_facilities"] for d in data["districts"])
+    assert sum_facilities > 4000
+
 def test_get_geo_districts_endpoint(client):
     res = client.get("/api/geo/districts")
     assert res.status_code == 200

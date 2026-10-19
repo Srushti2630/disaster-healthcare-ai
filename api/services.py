@@ -34,25 +34,61 @@ LIMITATIONS_LIST = [
     "Conformalized Quantile Regression (CQR 90%) intervals are conservative, spanning several orders of magnitude.",
     "Epidemiological consumption parameters are ASSUMED from WHO IEHK 2017 & Sphere Handbook standards.",
     "District bed capacities are ESTIMATED from state-level anchors (144,983 total beds / 11,587 ICU beds).",
-    "WorldPop 2020 1km constrained zonal sum shows a 5.97% gap relative to official state projections (reported unscaled).",
+    "WorldPop 2020, about 100 m (3 arc-second) constrained zonal sum shows a 5.97% gap relative to official state projections (reported unscaled).",
     "Cost index is an abstract logistics evaluation score (unit_km * 15.0 + active_routes * 500.0), NOT commercial currency."
 ]
 
 def get_districts_service(app_state: Any) -> DistrictListResponse:
     """Retrieve all 35 Maharashtra districts with population, capacity, and facility details with provenance tags."""
-    pop_df = app_state.pop_df
-    cap_df = app_state.cap_df
-    fac_df = app_state.fac_df
+    pop_df = getattr(app_state, "pop_df", None)
+    cap_df = getattr(app_state, "cap_df", None)
+    fac_df = getattr(app_state, "fac_df", None)
 
-    if pop_df.empty or cap_df.empty:
+    if pop_df is None or (isinstance(pop_df, pd.DataFrame) and pop_df.empty):
+        pop_path = settings.PROCESSED_DIR / "district_population.csv"
+        if pop_path.exists():
+            pop_df = pd.read_csv(pop_path)
+            app_state.pop_df = pop_df
+
+    if cap_df is None or (isinstance(cap_df, pd.DataFrame) and cap_df.empty):
+        cap_path = settings.PROCESSED_DIR / "district_capacity.csv"
+        if cap_path.exists():
+            cap_df = pd.read_csv(cap_path)
+            app_state.cap_df = cap_df
+
+    if fac_df is None or (isinstance(fac_df, pd.DataFrame) and fac_df.empty):
+        fac_path = settings.PROCESSED_DIR / "district_facilities.csv"
+        if fac_path.exists():
+            fac_df = pd.read_csv(fac_path)
+            app_state.fac_df = fac_df
+
+    if pop_df is None or pop_df.empty or cap_df is None or cap_df.empty:
         raise HTTPException(status_code=503, detail="District data not loaded or unavailable.")
 
-    merged = pd.merge(pop_df, cap_df, on="district", suffixes=("", "_cap"))
-    if not fac_df.empty:
-        merged = pd.merge(merged, fac_df[["district", "total_facilities", "public_facilities", "private_facilities"]], on="district", how="left")
+    pop_copy = pop_df.copy()
+    cap_copy = cap_df.copy()
+    pop_copy["join_key"] = pop_copy["district"].astype(str).str.strip().str.lower()
+    cap_copy["join_key"] = cap_copy["district"].astype(str).str.strip().str.lower()
+
+    merged = pd.merge(pop_copy, cap_copy, on="join_key", suffixes=("", "_cap"))
+    if not merged.empty and "district_cap" in merged.columns:
+        merged = merged.drop(columns=["district_cap"])
+
+    if fac_df is not None and not fac_df.empty:
+        fac_copy = fac_df.copy()
+        fac_copy["join_key"] = fac_copy["district"].astype(str).str.strip().str.lower()
+        cols = [c for c in ["join_key", "total_facilities", "public_facilities", "private_facilities"] if c in fac_copy.columns]
+        merged = pd.merge(merged, fac_copy[cols], on="join_key", how="left")
 
     records: List[DistrictDetail] = []
     for _, row in merged.iterrows():
+        tot_fac = row.get("total_facilities", 0)
+        tot_fac = 0 if pd.isna(tot_fac) else int(tot_fac)
+        pub_fac = row.get("public_facilities", 0)
+        pub_fac = 0 if pd.isna(pub_fac) else int(pub_fac)
+        priv_fac = row.get("private_facilities", 0)
+        priv_fac = 0 if pd.isna(priv_fac) else int(priv_fac)
+
         cap = DistrictBedCapacity(
             beds_low=int(row.get("beds_low", 0)),
             beds_mid=int(row.get("beds_mid", 0)),
@@ -63,9 +99,9 @@ def get_districts_service(app_state: Any) -> DistrictListResponse:
             provenance=ProvenanceTag.ESTIMATED
         )
         fac = DistrictFacilities(
-            total_facilities=int(row.get("total_facilities", 0)),
-            public_facilities=int(row.get("public_facilities", 0)),
-            private_facilities=int(row.get("private_facilities", 0)),
+            total_facilities=tot_fac,
+            public_facilities=pub_fac,
+            private_facilities=priv_fac,
             provenance=ProvenanceTag.REAL
         )
         rec = DistrictDetail(
@@ -75,15 +111,20 @@ def get_districts_service(app_state: Any) -> DistrictListResponse:
             pop_density_sqkm=float(row.get("pop_density_sqkm", 0.0)),
             capacity=cap,
             facilities=fac,
+            total_facilities=tot_fac,
             provenance=ProvenanceTag.REAL
         )
         records.append(rec)
+
+    total_cleaned = sum(r.facilities.total_facilities for r in records)
 
     return DistrictListResponse(
         total_districts=len(records),
         total_state_population=int(pop_df["population"].sum()),
         state_hospital_beds_anchor=144983,
         state_icu_beds_anchor=11587,
+        total_facilities=total_cleaned,
+        total_cleaned_facilities=total_cleaned,
         districts=records
     )
 

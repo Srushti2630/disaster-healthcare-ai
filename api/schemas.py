@@ -48,6 +48,7 @@ class DistrictDetail(BaseModel):
     pop_density_sqkm: float
     capacity: DistrictBedCapacity
     facilities: DistrictFacilities
+    total_facilities: Optional[int] = Field(default=None, description="Direct total facilities count")
     provenance: ProvenanceTag = ProvenanceTag.REAL
 
 class DistrictListResponse(BaseModel):
@@ -55,6 +56,8 @@ class DistrictListResponse(BaseModel):
     total_state_population: int
     state_hospital_beds_anchor: int
     state_icu_beds_anchor: int
+    total_facilities: Optional[int] = Field(default=None, description="Statewide total cleaned facilities")
+    total_cleaned_facilities: Optional[int] = Field(default=None, description="Total cleaned facilities across state")
     districts: List[DistrictDetail]
 
 # -------------------------------------------------------------

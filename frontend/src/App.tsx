@@ -44,7 +44,7 @@ export const App: React.FC = () => {
               <div className="max-w-7xl mx-auto px-4 space-y-1">
                 <p>Disaster Healthcare AI Decision-Support Framework &bull; Maharashtra (35 Districts)</p>
                 <p className="text-[11px] text-slate-400">
-                  CRED EM-DAT &bull; WorldPop 2020 &bull; National Health Portal &bull; Kapoor et al. (2020) &bull; Google OR-Tools SCIP
+                  CRED EM-DAT &bull; WorldPop 2020, about 100 m (3 arc-second) &bull; National Health Portal &bull; State ICU audit (provided dataset; original publisher not stated) &bull; Google OR-Tools SCIP
                 </p>
               </div>
             </footer>
