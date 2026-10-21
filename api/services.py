@@ -201,18 +201,28 @@ def get_backtest_service(app_state: Any) -> BacktestResponse:
 def get_baselines_service(app_state: Any) -> BaselineResponse:
     """Retrieve 20-scenario optimization benchmark comparison table."""
     base_df = getattr(app_state, "baselines_df", pd.DataFrame())
-    if base_df.empty:
+
     def parse_rows(df: pd.DataFrame) -> List[BaselineComparisonRow]:
         res = []
         for _, r in df.iterrows():
             res.append(BaselineComparisonRow(
                 method=str(r["method"]),
                 unmet_demand_mean=float(r["unmet_demand_mean"]),
-                unmet_pct_mean=float(r["unmet_pct_mean"]) if "unmet_pct_mean" in r and pd.notna(r["unmet_pct_mean"]) else None,
-                unmet_pct_median=float(r["unmet_pct_median"]) if "unmet_pct_median" in r and pd.notna(r["unmet_pct_median"]) else None,
-                unmet_pct_p75=float(r["unmet_pct_p75"]) if "unmet_pct_p75" in r and pd.notna(r["unmet_pct_p75"]) else None,
-                unmet_pct_p90=float(r["unmet_pct_p90"]) if "unmet_pct_p90" in r and pd.notna(r["unmet_pct_p90"]) else None,
-                cost_index_mean=float(r.get("cost_mean", r.get("cost_index_mean", 0.0))),
+                unmet_pct_mean=float(r["unmet_pct_mean"])
+                if "unmet_pct_mean" in r and pd.notna(r["unmet_pct_mean"])
+                else None,
+                unmet_pct_median=float(r["unmet_pct_median"])
+                if "unmet_pct_median" in r and pd.notna(r["unmet_pct_median"])
+                else None,
+                unmet_pct_p75=float(r["unmet_pct_p75"])
+                if "unmet_pct_p75" in r and pd.notna(r["unmet_pct_p75"])
+                else None,
+                unmet_pct_p90=float(r["unmet_pct_p90"])
+                if "unmet_pct_p90" in r and pd.notna(r["unmet_pct_p90"])
+                else None,
+                cost_index_mean=float(
+                    r.get("cost_mean", r.get("cost_index_mean", 0.0))
+                ),
                 unit_km_mean=float(r["unit_km_mean"]),
                 route_km_mean=float(r["route_km_mean"]),
                 min_coverage_mean=float(r["min_coverage_mean"]),
@@ -224,12 +234,15 @@ def get_baselines_service(app_state: Any) -> BaselineResponse:
 
     restricted_rows = None
     restr_path = settings.REPORTS_DIR / "baseline_comparison_restricted.csv"
+
     if restr_path.exists():
         try:
             restr_df = pd.read_csv(restr_path)
             restricted_rows = parse_rows(restr_df)
         except Exception as e:
-            logger.warning(f"Error reading baseline_comparison_restricted.csv: {e}")
+            logger.warning(
+                f"Error reading baseline_comparison_restricted.csv: {e}"
+            )
 
     return BaselineResponse(
         evaluation_formula="Cost Index = unit_km * 15.0 + active_routes * 500.0",
@@ -238,6 +251,7 @@ def get_baselines_service(app_state: Any) -> BaselineResponse:
         restricted_results=restricted_rows,
         pareto_plot_url="/api/baselines/pareto-plot"
     )
+
 
 def predict_impact_service(app_state: Any, req: ImpactPredictionRequest) -> ImpactPredictionResponse:
     """Predict disaster casualty impact and conformalized quantile prediction interval."""
