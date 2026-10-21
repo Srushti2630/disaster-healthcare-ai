@@ -608,6 +608,7 @@ def compare_against_baselines(
                 "unmet_pct_p90": round(float(np.percentile(df_sub["unmet_pct"], 90)), 2),
                 "unmet_pct_mean": round(float(df_sub["unmet_pct"].mean()), 2),
                 "cost_mean": round(float(df_sub["cost"].mean()), 2),
+                "cost_index_mean": round(float(df_sub["cost"].mean()), 2),
                 "route_km_mean": round(float(df_sub["route_km"].mean()), 1),
                 "min_coverage_mean": round(float(df_sub["minimum_coverage"].mean()), 3),
                 "violations_mean": round(float(df_sub["violations"].mean()), 2)

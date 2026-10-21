@@ -355,21 +355,37 @@ def test_surrogate_dataset_class_balance():
 
 def test_holm_bonferroni_correction_and_indistinguishable_verdict():
     """Verify Holm-Bonferroni step-down correction and indistinguishable verdict logic."""
+    # Case 1: Best heuristic is indistinguishable from OR-Tools SCIP
     mock_results = {
         "OR-Tools SCIP": [{"unmet_pct": 2.0} for _ in range(20)],
-        "Heuristic A": [{"unmet_pct": 2.01} for _ in range(20)],
-        "Heuristic B": [{"unmet_pct": 10.0} for _ in range(20)],
-        "Heuristic C": [{"unmet_pct": 12.0} for _ in range(20)],
-        "Heuristic D": [{"unmet_pct": 15.0} for _ in range(20)]
+        "Heuristic A": [{"unmet_pct": 2.0 + (0.01 if i < 3 else 0.0)} for i in range(20)], # non-zero in only 3 pairs
+        "Heuristic B": [{"unmet_pct": 10.0 + i * 0.5} for i in range(20)],
+        "Heuristic C": [{"unmet_pct": 12.0 + i * 0.5} for i in range(20)],
+        "Heuristic D": [{"unmet_pct": 15.0 + i * 0.5} for i in range(20)]
     }
     analysis = compute_paired_wilcoxon_with_holm(mock_results, primary_method="OR-Tools SCIP")
     assert "comparisons" in analysis
     assert "best_heuristic" in analysis
     assert "verdict" in analysis
+    assert analysis["best_heuristic"] == "Heuristic A"
+    assert "statistically indistinguishable" in analysis["verdict"]
+
     comps = analysis["comparisons"]
     for b_name in ["Heuristic A", "Heuristic B", "Heuristic C", "Heuristic D"]:
         assert "p_value_holm" in comps[b_name]
         assert "rank_biserial_r" in comps[b_name]
         assert "n_nonzero" in comps[b_name]
         assert 0.0 <= comps[b_name]["p_value_holm"] <= 1.0
+
+    # Case 2: Strictly significant differences across all baselines
+    mock_sig = {
+        "OR-Tools SCIP": [{"unmet_pct": 1.0} for _ in range(20)],
+        "Heuristic A": [{"unmet_pct": 5.0 + i * 0.5} for i in range(20)],
+        "Heuristic B": [{"unmet_pct": 8.0 + i * 0.5} for i in range(20)],
+        "Heuristic C": [{"unmet_pct": 12.0 + i * 0.5} for i in range(20)],
+        "Heuristic D": [{"unmet_pct": 16.0 + i * 0.5} for i in range(20)]
+    }
+    analysis_sig = compute_paired_wilcoxon_with_holm(mock_sig, primary_method="OR-Tools SCIP")
+    assert "statistically distinguishable" in analysis_sig["verdict"]
+    assert analysis_sig["comparisons"]["Heuristic A"]["p_value_holm"] < 0.05
 
