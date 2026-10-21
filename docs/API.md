@@ -61,6 +61,12 @@ In accordance with strict scientific transparency, all metrics returned by the A
 | **Model** | `POST` | `/api/predict-impact` | Public | 30 / min | Conformalized quantile regression impact prediction |
 | **Simulator**| `POST` | `/api/simulate` | Public | 10 / min | 2,000-draw Monte-Carlo scenario surge simulator |
 | **Optimiser**| `POST` | `/api/allocate` | Public | 10 / min | Multi-objective OR-Tools SCIP redistribution solver |
+| **Optimiser**| `GET` | `/api/baselines` | Public | 60 / min | Stratified baseline comparison table & Pareto curve URL |
+| **Explain** | `GET` | `/api/explain/global` | Public | 60 / min | Top global SHAP feature importance & summary plot |
+| **Explain** | `POST` | `/api/explain` | Public | 30 / min | Exact Ridge linear SHAP decomposition & plain-English text |
+| **Inventory**| `GET` | `/api/stock` | Authenticated | 60 / min | Fetch active user-provided custom inventory overrides |
+| **Inventory**| `POST` | `/api/stock` | `officer`, `admin`| 30 / min | Update user-provided custom stock (`USER-PROVIDED` tag) |
+| **Inventory**| `DELETE`| `/api/stock` | `officer`, `admin`| 30 / min | Clear custom stock overrides, reverting to estimated baseline |
 | **Backtest** | `GET` | `/api/backtest` | Public | 60 / min | Real historical Leave-One-Out validation records |
 | **Audit** | `GET` | `/api/audit` | Authenticated | 60 / min | Retrieve SHA-256 chained audit ledger entries |
 | **Audit** | `POST` | `/api/audit` | `officer`, `admin` | 30 / min | Record official human review decision |
@@ -166,7 +172,7 @@ Predicts total affected population and 90% Conformalized Quantile Regression (CQ
   "cqr_p10": 4210.0,
   "cqr_p90": 1690400.0,
   "confidence_score": 0.52,
-  "evaluation_note": "ML model provides relative risk rank across districts (Spearman rho = 0.52). Tail outliers can exceed point estimates by 30-150x.",
+  "evaluation_note": "ML model provides relative risk rank across districts (Spearman rho = 0.52). Historical Leave-One-Out validation demonstrates actual/predicted ratios ranging from 7.7x to 1024.6x (median 68.8x) with a 6.25 order-of-magnitude CQR prediction interval width.",
   "provenance_tags": {
     "predicted_affected": "ESTIMATED",
     "cqr_intervals": "ESTIMATED"

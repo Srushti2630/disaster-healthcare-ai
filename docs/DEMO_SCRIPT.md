@@ -55,7 +55,7 @@ streamlit run app.py
 **Talking Points**:
 > *"Once shortages are identified, how do we redistribute supplies across districts safely? We model resource allocation as a multi-commodity network flow MIP solved using Google OR-Tools SCIP solver.*  
 > *Our solver enforces 5 critical real-world safety constraints: 60% source safety reserves, high-risk export prohibitions, 150 km perishables transit limits for blood units, integer pack sizes, and non-negative stock.*  
-> *In a 20-scenario benchmark evaluating 5 methods under a shared evaluator and unified cost function ($\text{unit\_km} \times 15.0 + \text{routes} \times 500.0$), OR-Tools SCIP achieved the lowest mean unmet demand (20,829 units vs 465,298 for Greedy Nearest and 2.10M for No Redistribution), lowest active transport cost (10.49B INR), highest minimum coverage (57.8%), and zero rule violations."*
+> *In a 36-scenario stratified benchmark evaluating 5 methods under a shared evaluator and unified cost function ($\text{unit\_km} \times 15.0 + \text{routes} \times 500.0$), OR-Tools SCIP achieved the lowest mean unmet demand (2.09% of total demand vs 3.45% for Greedy Nearest and 5.32% for No Redistribution), lowest active transport Cost Index (3.41B Cost Index units vs 5.08B for Greedy Nearest and 6.54B for Greedy Largest Surplus), highest minimum coverage (0.812), and zero rule violations."*
 
 ---
 

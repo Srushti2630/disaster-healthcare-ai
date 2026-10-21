@@ -71,10 +71,10 @@ Disaster healthcare logistics during extreme natural hazards face severe spatial
 | Asset / Dataset | Provenance Tag | Source / Methodology | Records & Notes |
 |---|---|---|---|
 | **EM-DAT Disaster Catalogue** | `REAL` | CRED EM-DAT International Disaster Database ([public.emdat.be](https://public.emdat.be/)) | 810 India disaster events spanning 1900–2026 (512 with targets); casualty figures never imputed. |
-| **WorldPop Population Raster** | `REAL` | WorldPop 2020 1km / 3 arc-sec Constrained Grid ([worldpop.org](https://www.worldpop.org/)) | Raw raster zonal sum at 0.00083333° resolution (EPSG:4326): 131,936,179 vs 124.5M projection (5.97% gap documented as sanity check). |
+| **WorldPop Population Raster** | `REAL` | WorldPop 2020, about 100 m (3 arc-second) Constrained Grid ([worldpop.org](https://www.worldpop.org/)) | Raw raster zonal sum at 0.00083333° resolution (EPSG:4326): 131,936,179 vs 124.5M projection (5.97% gap documented as sanity check). |
 | **National Hospital Directory** | `REAL` | Open Government Data Portal India ([data.gov.in](https://data.gov.in/)) | 4,767 Maharashtra health facilities classified by public/private mix. |
-| **State ICU Beds Audit** | `ASSUMED` citation | National Health Profile / Kapoor et al. (2020) (*citation unverified from local raw files*) | 11,587 total state ICU beds (2,572 public / 9,015 private). |
-| **District Hospital Bed Capacity** | `ESTIMATED` | State Bed Anchor + Facility Count Weighting | Allocated from 144,983 state total hospital bed anchor (`api/services.py`) across 35 districts¹. |
+| **State ICU Beds Audit** | `ASSUMED` | State ICU audit (provided dataset; original publisher not stated) | 11,587 total state ICU beds (2,572 public / 9,015 private). |
+| **District Hospital Bed Capacity** | `ESTIMATED` | State Bed Anchor + Facility Count Weighting | Allocated from analyst-specified ESTIMATED total of 144,983 state hospital beds (`api/services.py`) across 35 districts¹. |
 | **Epidemiological Consumption** | `ASSUMED` | WHO IEHK 2017 & Sphere Project Guidelines | Daily consumption rates per patient/injured day (`config/demand_params.yaml`). |
 | **Road Transport Circuity** | `ASSUMED` | Haversine Distance $\times$ 1.3 Factor | Terrain circuity multiplier over 35 district centroids. |
 
@@ -202,13 +202,13 @@ docker compose down
 The codebase includes comprehensive test suites across both backend and frontend layers (100% passing):
 
 ```bash
-# 1. Run Core Analytical Tests (31 tests: datasets, CQR intervals, SCIP constraints, stratified sampler, class balance, Holm correction)
+# 1. Run Core Analytical Tests (31 tests: datasets, CQR intervals, SCIP constraints, stratified sampler, class balance, Holm correction, tornado sensitivity)
 pytest tests/test_core.py -v
 
-# 2. Run API, Auth & Cryptographic Audit Tests (24 tests: endpoints, JWT RBAC, tamper-evident ledger, rate limits)
+# 2. Run API, Auth & Cryptographic Audit Tests (28 tests: endpoints, JWT RBAC, tamper-evident ledger, rate limits, explainability, custom stock)
 pytest tests_api/ -v
 
-# 3. Run Frontend Unit & Component Tests (Vitest)
+# 3. Run Frontend Unit & Component Tests (Vitest: 7 tests passing)
 cd frontend && npm test
 ```
 

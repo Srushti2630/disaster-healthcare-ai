@@ -24,7 +24,7 @@ export const AllocationPage: React.FC = () => {
   const [stratumView, setStratumView] = useState<"overall" | "restricted">("overall");
   const [allocationData, setAllocationData] = useState<AllocationResponse | null>(null);
 
-  // Fetch benchmark baselines (20-scenario comparison)
+  // Fetch benchmark baselines (stratified scenario comparison)
   const { data: baselinesData } = useQuery({
     queryKey: ["baselines"],
     queryFn: () => api.getBaselines(),
@@ -348,7 +348,7 @@ export const AllocationPage: React.FC = () => {
           <span className="text-[11px] text-slate-500">
             {stratumView === "restricted"
               ? "Restricted strictly to scenarios where redistribution is operationally necessary"
-              : "Full 20-scenario stratified benchmark suite"}
+              : "Full stratified benchmark suite"}
           </span>
         </div>
 

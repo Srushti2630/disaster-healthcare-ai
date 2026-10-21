@@ -199,7 +199,7 @@ def get_backtest_service(app_state: Any) -> BacktestResponse:
     )
 
 def get_baselines_service(app_state: Any) -> BaselineResponse:
-    """Retrieve 20-scenario optimization benchmark comparison table."""
+    """Retrieve stratified optimization benchmark comparison table."""
     base_df = getattr(app_state, "baselines_df", pd.DataFrame())
 
     def parse_rows(df: pd.DataFrame) -> List[BaselineComparisonRow]:

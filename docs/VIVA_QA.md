@@ -14,7 +14,7 @@ This document prepares project authors for academic viva voce examinations, tech
 **Answer**: To eliminate data fabrication and maintain scientific integrity, every dataset and figure is explicitly tagged:
 - **`REAL`**: Raw public data cited directly from authoritative databases (CRED EM-DAT 1900–2026, WorldPop 2020 1km / 3 arc-sec grid at 0.00083333° pixel scale, National Health Portal India). Never imputed or altered.
 - **`ESTIMATED`**: Quantities derived from real data using documented mathematical methods (e.g., district hospital bed capacity allocated from state-level 144,983 hospital bed anchors [`api/services.py`] weighted by facility counts).
-- **`ASSUMED`**: Parameters sourced from WHO/Sphere literature, transport physics norms (e.g., Haversine $\times 1.3$ road circuity factor, clinical supply consumption rates), or unverified citations (e.g., Kapoor et al. (2020) state ICU bed audit citation, which is unverified from local raw files).
+- **`ASSUMED`**: Parameters sourced from WHO/Sphere literature, transport physics norms (e.g., Haversine $\times 1.3$ road circuity factor, clinical supply consumption rates), or unverified citations (e.g., State ICU audit, which is a provided dataset with original publisher not stated).
 
 ### Q4: Why is `Total_Num_Beds` from the National Hospital Directory CSV (`hospital_directory (1).csv`) not used directly?
 **Answer**: Thorough data auditing revealed that while the National Hospital Directory contains 4,767 healthcare facilities in Maharashtra, the `Total_Num_Beds` column is non-null and valid (1–5000) for only **32 facilities** in Maharashtra (~0.67% completeness). Using this column directly would severely distort district bed capacity. Instead, we use facility counts and public/private classifications from the directory as spatial weighting factors (`REAL`), and anchor district capacities to the official state-level 11,587 ICU bed audit (`ASSUMED` citation) and 144,983 total hospital bed anchor (`ESTIMATED`).
@@ -104,8 +104,8 @@ All 5 methods were evaluated through **ONE shared constraint checker** and **ONE
 
 ### Q20: How does the framework demonstrate full end-to-end reproducibility?
 **Answer**: The entire pipeline is fully automated and state-agnostic:
-1. `python run_all.py` executes data cleaning, real boundary verification, WorldPop zonal extraction, impact model training, CQR calibration, Monte-Carlo scenario surrogate training, OR-Tools 20-scenario optimization benchmarking, and report generation in a single command.
-2. `pytest -q` runs 52 automated Python tests verifying dataset integrity, non-leakage, solver constraints, audit log hash chaining, security validation, and REST endpoints.
+1. `python run_all.py` executes data cleaning, real boundary verification, WorldPop zonal extraction, impact model training, CQR calibration, Monte-Carlo scenario surrogate training, OR-Tools stratified optimization benchmarking, and report generation in a single command.
+2. `pytest -q` runs 59 automated Python tests and `npm test` runs 7 frontend Vitest tests, verifying dataset integrity, non-leakage, solver constraints, audit log hash chaining, security validation, explainability, editable inventory, and REST endpoints.
 3. Environment and dependencies are pinned in `requirements.txt` and `requirements-api.txt`.
 
 ---
