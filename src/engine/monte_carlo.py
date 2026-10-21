@@ -258,7 +258,7 @@ def generate_stratified_benchmark_scenarios(
     strata_data = load_emdat_affected_strata()
     districts = list(MAHARASHTRA_DISTRICTS.keys())
     diverse_epicentres = [
-        "Pune", "Nagpur", "Mumbai", "Nashik", "Chhatrapati Sambhajinagar", 
+        "Pune", "Nagpur", "Mumbai", "Nashik", "Aurangabad", 
         "Amravati", "Kolhapur", "Solapur", "Thane", "Nanded"
     ]
     # Filter to existing district keys

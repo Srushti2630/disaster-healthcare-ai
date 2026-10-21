@@ -324,13 +324,25 @@ def test_stratified_benchmark_sampler():
     strata_counts = pd.Series([s["stratum"] for s in scenarios]).value_counts()
     for stratum in ["Low", "Moderate", "Severe"]:
         assert strata_counts.get(stratum, 0) >= 10, f"Stratum {stratum} has {strata_counts.get(stratum, 0)} < 10 scenarios"
+        stratum_scens = [s for s in scenarios if s["stratum"] == stratum]
+        mults = set(s["stock_multiplier"] for s in stratum_scens)
+        assert {0.25, 0.5, 1.0}.issubset(mults), f"Stratum {stratum} missing stock multipliers: {mults}"
+
+    epicentres = set(s["epicentre"] for s in scenarios)
+    hazards = set(s["hazard_type"] for s in scenarios)
+    assert len(epicentres) >= 3, f"Expected >= 3 distinct epicentres, found {len(epicentres)}"
+    assert len(hazards) >= 3, f"Expected >= 3 distinct hazards, found {len(hazards)}"
 
     for s in scenarios:
         assert s["total_demand"] > 0
         assert s["total_stock"] > 0
         assert "has_shortage" in s
         assert "cap_bound_pct" in s
+        assert 0.0 <= s["cap_bound_pct"] <= 100.0
         assert s["stock_multiplier"] in [0.25, 0.5, 1.0]
+        assert s["event_total_drawn"] > 0
+        assert len(s["demands"]) == 35
+        assert len(s["stocks"]) == 35
 
 def test_surrogate_dataset_class_balance():
     """Verify surrogate dataset sampling guarantees Low, Medium, and High risk are each >= 15% of rows."""

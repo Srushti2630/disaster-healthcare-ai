@@ -617,6 +617,16 @@ def compare_against_baselines(
     # Exact paired Wilcoxon tests with Holm correction
     wilcoxon_analysis = compute_paired_wilcoxon_with_holm(results, primary_method="OR-Tools SCIP")
 
+    print(f"\n--- Stratified Benchmark Scenarios Summary (N={len(scenarios)}) ---")
+    print(f"  Total Scenarios: {len(scenarios)} ({len(scenarios)//3} per stratum: Low, Moderate, Severe)")
+    print(f"  Share of scenarios with active shortage: {shortage_share_pct:.2f}% ({sum(1 for sc in scenarios if sc['has_shortage'])}/{len(scenarios)})")
+    print(f"  Population cap binding frequency: {cap_bound_freq_pct:.2f}% of allocations")
+    print(f"  Detailed scenario records saved to {REPORTS_DIR / 'baseline_scenarios_detail.csv'}")
+    print("\n--- Scenario Total Demand vs Total Stock Overview ---")
+    for r in scenario_records:
+        shortage_str = "YES" if r["has_shortage"] else "NO"
+        print(f"  Scenario {r['scenario_id']:02d} [{r['stratum']:<8} | stock x{r['stock_multiplier']:.2f} | {r['epicentre']:<12} | {r['hazard_type']:<10}]: Demand={r['total_demand']:>12,.1f}, Stock={r['total_stock']:>12,.1f}, CapBound={r['cap_bound_pct']:>5.1f}%, Shortage={shortage_str}")
+
     print(f"\n--- Baseline Comparison Table (All {len(scenarios)} Stratified Scenarios) ---")
     print(summary_df.to_string(index=False))
 
