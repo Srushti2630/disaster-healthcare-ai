@@ -397,3 +397,19 @@ def test_holm_bonferroni_correction_and_indistinguishable_verdict():
     assert "statistically distinguishable" in analysis_sig["verdict"]
     assert analysis_sig["comparisons"]["Heuristic A"]["p_value_holm"] < 0.05
 
+def test_tornado_sensitivity_analysis_structure():
+    """Verify Tornado sensitivity analysis tests decay_km (75/150/300), consumption (+-25%), and stock (+-25%)."""
+    from src.audit import run_sensitivity_analysis
+    sens_df = run_sensitivity_analysis()
+    assert len(sens_df) >= 10, f"Expected >= 10 parameter variations, got {len(sens_df)}"
+    assert "parameter_variation" in sens_df.columns
+    assert "high_risk_change_pct" in sens_df.columns
+    variations = list(sens_df["parameter_variation"])
+    assert any("75km" in v for v in variations)
+    assert any("300km" in v for v in variations)
+    assert any("Consumption Rates (+25%)" in v for v in variations)
+    assert any("Consumption Rates (-25%)" in v for v in variations)
+    assert any("Stock Capacity (+25%)" in v for v in variations)
+    assert any("Stock Capacity (-25%)" in v for v in variations)
+
+

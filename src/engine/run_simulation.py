@@ -87,6 +87,10 @@ def run_simulation_engine():
     # Train fast ML surrogate classifier on 500 diverse Monte-Carlo scenarios
     surrogate_bundle = train_surrogate_classifier(n_scenarios=500)
 
+    # Run Tornado sensitivity analysis on the new Monte-Carlo engine
+    from src.audit import run_sensitivity_analysis
+    run_sensitivity_analysis()
+
     # Archive legacy generator
     archive_legacy_synthetic_generator()
 
