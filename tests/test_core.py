@@ -353,6 +353,14 @@ def test_surrogate_dataset_class_balance():
         assert c in shares, f"Class {c} missing from surrogate dataset"
         assert shares[c] >= 0.15, f"Class {c} represents {shares[c]:.2%} < 15% of dataset"
 
+    # Verify scenario isolation
+    unique_scens = df["scenario_id"].unique()
+    assert len(unique_scens) == 15
+    train_count = int(len(unique_scens) * 0.8)
+    train_ids = set(unique_scens[:train_count])
+    test_ids = set(unique_scens[train_count:])
+    assert len(train_ids.intersection(test_ids)) == 0
+
 def test_holm_bonferroni_correction_and_indistinguishable_verdict():
     """Verify Holm-Bonferroni step-down correction and indistinguishable verdict logic."""
     # Case 1: Best heuristic is indistinguishable from OR-Tools SCIP
