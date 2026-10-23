@@ -8,7 +8,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from sklearn.linear_model import Ridge
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, VotingRegressor
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
@@ -117,12 +117,24 @@ def train_and_evaluate_impact_models():
     X_val = preprocessor.transform(X_val_raw)
     X_test = preprocessor.transform(X_test_raw)
 
-    # Models evaluation
+    # Individual base models
+    ridge_base = Ridge(alpha=1.0)
+    rf_base = RandomForestRegressor(n_estimators=100, random_state=42)
+    xgb_base = xgb.XGBRegressor(n_estimators=100, max_depth=4, learning_rate=0.05, random_state=42)
+
+    # Models evaluation with heterogeneous Voting Ensemble
     models = {
         "Median_Baseline": None,
-        "Ridge": Ridge(alpha=1.0),
-        "Random_Forest": RandomForestRegressor(n_estimators=100, random_state=42),
-        "XGBoost": xgb.XGBRegressor(n_estimators=100, max_depth=4, learning_rate=0.05, random_state=42)
+        "Ridge": ridge_base,
+        "Random_Forest": rf_base,
+        "XGBoost": xgb_base,
+        "Voting_Ensemble": VotingRegressor(
+            estimators=[
+                ("ridge", Ridge(alpha=1.0)),
+                ("rf", RandomForestRegressor(n_estimators=100, random_state=42)),
+                ("xgb", xgb.XGBRegressor(n_estimators=100, max_depth=4, learning_rate=0.05, random_state=42))
+            ]
+        )
     }
 
     metrics = {}
@@ -215,21 +227,24 @@ def train_and_evaluate_impact_models():
     r2_ci = [round(float(np.percentile(boot_r2s, 2.5)), 4), round(float(np.percentile(boot_r2s, 97.5)), 4)]
     rho_ci = [round(float(np.percentile(boot_rhos, 2.5)), 4), round(float(np.percentile(boot_rhos, 97.5)), 4)]
 
-    print(f"\n✓ Conformalized Quantile Regression (CQR 90% Nominal) Empirical Test Coverage: {empirical_coverage_90:.1f}% (95% CI: {cov_ci}%)")
-    print(f"✓ CQR Median Interval Multiplicative Factor: x{med_mult_factor:.2f}")
-    print(f"✓ Ridge Test R²: {metrics['Ridge']['test_r2']:.4f} (95% CI: {r2_ci}) | Spearman ρ: {metrics['Ridge']['test_spearman_rho']:.4f} (95% CI: {rho_ci})")
+    print(f"\n[OK] Conformalized Quantile Regression (CQR 90% Nominal) Empirical Test Coverage: {empirical_coverage_90:.1f}% (95% CI: {cov_ci}%)")
+    print(f"[OK] CQR Median Interval Multiplicative Factor: x{med_mult_factor:.2f}")
+    print(f"[OK] Ridge Test R2: {metrics['Ridge']['test_r2']:.4f} (95% CI: {r2_ci}) | Spearman rho: {metrics['Ridge']['test_spearman_rho']:.4f} (95% CI: {rho_ci})")
 
-    # Fit best model for SHAP
+    # Fit models: Voting Ensemble for production predictions, and XGBoost for Tree-SHAP explainability
     best_xgb = models["XGBoost"]
     best_xgb.fit(X_train, y_train)
 
-    # Validation residual standard deviation (sigma) for log affected uncertainty
-    val_preds = best_xgb.predict(X_val)
+    ensemble_model = models["Voting_Ensemble"]
+    ensemble_model.fit(X_train, y_train)
+
+    # Validation residual standard deviation (sigma) for log affected uncertainty on ensemble
+    val_preds = ensemble_model.predict(X_val)
     val_residuals = y_val - val_preds
     val_std_log = float(np.std(val_residuals))
     impact_sigma_log = round(val_std_log if val_std_log > 0 else 3.40, 4)
 
-    # SHAP Explainer
+    # SHAP Explainer (Tree-SHAP on XGBoost component for non-linear feature interactions)
     explainer = shap.TreeExplainer(best_xgb)
     shap_values = explainer(X_test)
 
@@ -361,13 +376,13 @@ def train_and_evaluate_impact_models():
         plt.savefig(REPORTS_DIR / "historical_backtest_loglog.png", dpi=300)
         plt.close()
 
-    print(f"✓ Leave-one-event-out historical back-test completed for {len(bt_df)} real disaster events.")
+    print(f"[OK] Leave-one-event-out historical back-test completed for {len(bt_df)} real disaster events.")
 
     # Save artifacts
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     bundle = {
         "preprocessor": preprocessor,
-        "impact_model": best_xgb,
+        "impact_model": ensemble_model,
         "cqr_model": cqr,
         "feature_cols_num": FEATURE_COLS_NUM,
         "feature_cols_cat": FEATURE_COLS_CAT,
@@ -405,7 +420,7 @@ def train_and_evaluate_impact_models():
     with open(REPORTS_DIR / "metrics.json", "w") as f:
         json.dump(metrics_summary, f, indent=2)
 
-    print(f"✓ Impact model, CQR intervals, SHAP explainer, and metrics saved to {MODELS_DIR} and {REPORTS_DIR}.")
+    print(f"[OK] Impact model, CQR intervals, SHAP explainer, and metrics saved to {MODELS_DIR} and {REPORTS_DIR}.")
     return metrics_summary
 
 if __name__ == "__main__":

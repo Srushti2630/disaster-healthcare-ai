@@ -143,4 +143,28 @@ export const api = {
     request<AuditListResponse>(`/api/audit?page=${page}&page_size=${pageSize}`),
 
   verifyAuditChain: () => request<AuditVerifyResponse>("/api/audit/verify"),
+
+  downloadPdfSitrep: async (data: any) => {
+    const token = localStorage.getItem("token");
+    const response = await fetch(`${BASE_URL}/api/export/pdf-sitrep`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to download report (HTTP ${response.status})`);
+    }
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `NDMA_SITREP_${data.epicentre || "Maharashtra"}_${data.hazard || "Disaster"}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  },
 };

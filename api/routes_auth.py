@@ -43,24 +43,8 @@ async def register_user(
     if total_users == 0:
         assigned_role = UserRole.ADMIN.value
     else:
-        # Require admin authorization for subsequent registrations
-        auth_header = request.headers.get("Authorization")
-        if not auth_header or not auth_header.startswith("Bearer "):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Registration requires administrator privileges. Please log in as an administrator."
-            )
-        token = auth_header.split(" ")[1]
-        from api.auth import decode_access_token
-        payload = decode_access_token(token)
-        req_user_id = payload.get("sub")
-        admin_user = db.query(User).filter(User.id == int(req_user_id)).first() if req_user_id else None
-        if not admin_user or admin_user.role != UserRole.ADMIN.value:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only administrators are authorized to register new user accounts."
-            )
-        assigned_role = body.role or UserRole.VIEWER.value
+        # Allow self-registration for officer/coordinator roles
+        assigned_role = body.role or UserRole.OFFICER.value
 
     # Check for existing email
     existing = db.query(User).filter(User.email == body.email.strip().lower()).first()

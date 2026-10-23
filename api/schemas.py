@@ -123,6 +123,12 @@ class ImpactPredictionRequest(BaseModel):
     month: Optional[int] = Field(default=7, ge=1, le=12, description="Month of event occurrence (1-12)")
     state: Optional[str] = Field(default="Maharashtra", description="Target region or state name")
 
+class ModelPredictionItem(BaseModel):
+    model_name: str
+    predicted_affected: int
+    architecture: str
+    is_active: bool = False
+
 class ImpactPredictionResponse(BaseModel):
     hazard: str
     month: int
@@ -133,6 +139,8 @@ class ImpactPredictionResponse(BaseModel):
     multiplicative_factor: float
     caveat: str
     provenance: ProvenanceTag = ProvenanceTag.ESTIMATED
+    model_architecture: Optional[str] = "Heterogeneous Voting Ensemble (Ridge + Random Forest + XGBoost)"
+    ensemble_breakdown: Optional[List[ModelPredictionItem]] = None
 
 # -------------------------------------------------------------
 # EXPLAINABILITY (SHAP) SCHEMAS
@@ -180,6 +188,7 @@ class SimulationRequest(BaseModel):
     planning_level: PlanningLevel = Field(default=PlanningLevel.P50, description="Demand quantile planning level (P50, P75, or P90)")
     stock_adjustment_pct: float = Field(default=0.0, ge=-100.0, le=500.0, description="Percentage adjustment to current medical stocks")
     custom_stocks: Optional[Dict[str, Dict[str, float]]] = Field(default=None, description="Optional user-provided custom district stocks")
+    model_choice: Optional[str] = Field(default="ensemble", description="Model choice: 'ensemble', 'xgb', 'rf', 'ridge'")
 
 # -------------------------------------------------------------
 # CUSTOM STOCK MODELS
@@ -225,6 +234,8 @@ class SimulationResponse(BaseModel):
     total_affected_simulated: int
     affected_capped_flag: bool
     results: List[DistrictMedicineDemand]
+    model_used: Optional[str] = "Voting Ensemble (Ridge + Random Forest + XGBoost)"
+    ensemble_comparison: Optional[Dict[str, int]] = None
 
 # -------------------------------------------------------------
 # ALLOCATE MODELS

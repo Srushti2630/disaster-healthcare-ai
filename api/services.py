@@ -16,7 +16,7 @@ from api.models import User, UserCustomStock
 from api.schemas import (
     DistrictListResponse, DistrictDetail, DistrictBedCapacity, DistrictFacilities,
     MetricsResponse, BacktestResponse, BacktestRecord, BaselineResponse, BaselineComparisonRow,
-    ImpactPredictionRequest, ImpactPredictionResponse,
+    ImpactPredictionRequest, ImpactPredictionResponse, ModelPredictionItem,
     FeatureContribution, LocalExplanationResponse, GlobalFeatureImportance, GlobalExplanationResponse,
     StockItem, UpdateStockRequest, UserStockResponse,
     SimulationRequest, SimulationResponse, DistrictMedicineDemand,
@@ -201,18 +201,28 @@ def get_backtest_service(app_state: Any) -> BacktestResponse:
 def get_baselines_service(app_state: Any) -> BaselineResponse:
     """Retrieve 20-scenario optimization benchmark comparison table."""
     base_df = getattr(app_state, "baselines_df", pd.DataFrame())
-    if base_df.empty:
+
     def parse_rows(df: pd.DataFrame) -> List[BaselineComparisonRow]:
         res = []
         for _, r in df.iterrows():
             res.append(BaselineComparisonRow(
                 method=str(r["method"]),
                 unmet_demand_mean=float(r["unmet_demand_mean"]),
-                unmet_pct_mean=float(r["unmet_pct_mean"]) if "unmet_pct_mean" in r and pd.notna(r["unmet_pct_mean"]) else None,
-                unmet_pct_median=float(r["unmet_pct_median"]) if "unmet_pct_median" in r and pd.notna(r["unmet_pct_median"]) else None,
-                unmet_pct_p75=float(r["unmet_pct_p75"]) if "unmet_pct_p75" in r and pd.notna(r["unmet_pct_p75"]) else None,
-                unmet_pct_p90=float(r["unmet_pct_p90"]) if "unmet_pct_p90" in r and pd.notna(r["unmet_pct_p90"]) else None,
-                cost_index_mean=float(r.get("cost_mean", r.get("cost_index_mean", 0.0))),
+                unmet_pct_mean=float(r["unmet_pct_mean"])
+                if "unmet_pct_mean" in r and pd.notna(r["unmet_pct_mean"])
+                else None,
+                unmet_pct_median=float(r["unmet_pct_median"])
+                if "unmet_pct_median" in r and pd.notna(r["unmet_pct_median"])
+                else None,
+                unmet_pct_p75=float(r["unmet_pct_p75"])
+                if "unmet_pct_p75" in r and pd.notna(r["unmet_pct_p75"])
+                else None,
+                unmet_pct_p90=float(r["unmet_pct_p90"])
+                if "unmet_pct_p90" in r and pd.notna(r["unmet_pct_p90"])
+                else None,
+                cost_index_mean=float(
+                    r.get("cost_mean", r.get("cost_index_mean", 0.0))
+                ),
                 unit_km_mean=float(r["unit_km_mean"]),
                 route_km_mean=float(r["route_km_mean"]),
                 min_coverage_mean=float(r["min_coverage_mean"]),
@@ -224,12 +234,15 @@ def get_baselines_service(app_state: Any) -> BaselineResponse:
 
     restricted_rows = None
     restr_path = settings.REPORTS_DIR / "baseline_comparison_restricted.csv"
+
     if restr_path.exists():
         try:
             restr_df = pd.read_csv(restr_path)
             restricted_rows = parse_rows(restr_df)
         except Exception as e:
-            logger.warning(f"Error reading baseline_comparison_restricted.csv: {e}")
+            logger.warning(
+                f"Error reading baseline_comparison_restricted.csv: {e}"
+            )
 
     return BaselineResponse(
         evaluation_formula="Cost Index = unit_km * 15.0 + active_routes * 500.0",
@@ -238,6 +251,7 @@ def get_baselines_service(app_state: Any) -> BaselineResponse:
         restricted_results=restricted_rows,
         pareto_plot_url="/api/baselines/pareto-plot"
     )
+
 
 def predict_impact_service(app_state: Any, req: ImpactPredictionRequest) -> ImpactPredictionResponse:
     """Predict disaster casualty impact and conformalized quantile prediction interval."""
@@ -273,6 +287,31 @@ def predict_impact_service(app_state: Any, req: ImpactPredictionRequest) -> Impa
         log_width = float(np.log10(max(1.0, float(p90)) / max(1.0, float(p10))))
         mult_factor = float(np.exp(upper_log[0] - lower_log[0]))
 
+        ensemble_items = []
+        if hasattr(model, "named_estimators_"):
+            ensemble_items.append(ModelPredictionItem(
+                model_name="Voting Ensemble (Ridge + RF + XGBoost)",
+                predicted_affected=pred_median,
+                architecture="Heterogeneous Ensemble",
+                is_active=True
+            ))
+            model_meta = [
+                ("xgb", "XGBoost Regressor", "Gradient Boosting"),
+                ("rf", "Random Forest Regressor", "Bagging Ensemble"),
+                ("ridge", "Ridge Linear Regressor", "L2 Regularized Linear")
+            ]
+            for key, name, arch in model_meta:
+                if key in model.named_estimators_:
+                    est = model.named_estimators_[key]
+                    est_log = float(est.predict(X_trans)[0])
+                    est_aff = int(np.expm1(np.clip(est_log, 0, 16)))
+                    ensemble_items.append(ModelPredictionItem(
+                        model_name=name,
+                        predicted_affected=est_aff,
+                        architecture=arch,
+                        is_active=False
+                    ))
+
         return ImpactPredictionResponse(
             hazard=req.hazard.value,
             month=req.month or 7,
@@ -282,7 +321,9 @@ def predict_impact_service(app_state: Any, req: ImpactPredictionRequest) -> Impa
             interval_width_orders_of_magnitude=round(log_width, 2),
             multiplicative_factor=round(mult_factor, 2),
             caveat=FIXED_IMPACT_CAVEAT,
-            provenance=ProvenanceTag.ESTIMATED
+            provenance=ProvenanceTag.ESTIMATED,
+            model_architecture="Heterogeneous Voting Ensemble (Ridge + Random Forest + XGBoost)",
+            ensemble_breakdown=ensemble_items
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
@@ -618,7 +659,47 @@ def simulate_service(
     pop_map = dict(zip(pop_df["district"], pop_df["population"])) if not pop_df.empty else {d: 2000000 for d in MAHARASHTRA_DISTRICTS}
 
     epi_coords = (MAHARASHTRA_DISTRICTS[req.epicentre]["lat"], MAHARASHTRA_DISTRICTS[req.epicentre]["lon"])
-    base_affected = req.affected_override if req.affected_override is not None else float(75000 * req.severity)
+
+    bundle = getattr(app_state, "impact_bundle", None)
+    ensemble_comp = {}
+    model_name_used = "Voting Ensemble (Ridge + Random Forest + XGBoost)"
+
+    if bundle and "impact_model" in bundle and "preprocessor" in bundle:
+        main_model = bundle["impact_model"]
+        prep = bundle["preprocessor"]
+        input_df = pd.DataFrame([{
+            "magnitude": 0.0,
+            "start_year": 2026,
+            "start_month": 7,
+            "decade": 2020,
+            "disaster_type": req.hazard.value,
+            "disaster_subtype": "Unknown",
+            "scope": "single-state"
+        }])
+        X_trans = prep.transform(input_df)
+
+        ens_pred_log = float(main_model.predict(X_trans)[0])
+        ens_aff = int(np.expm1(np.clip(ens_pred_log, 0, 16)) * req.severity)
+        ensemble_comp["Voting Ensemble"] = ens_aff
+        chosen_pred = ens_aff
+
+        if hasattr(main_model, "named_estimators_"):
+            for k, lbl in [("xgb", "XGBoost"), ("rf", "Random Forest"), ("ridge", "Ridge")]:
+                if k in main_model.named_estimators_:
+                    est = main_model.named_estimators_[k]
+                    est_log = float(est.predict(X_trans)[0])
+                    est_aff = int(np.expm1(np.clip(est_log, 0, 16)) * req.severity)
+                    ensemble_comp[lbl] = est_aff
+                    if getattr(req, "model_choice", None) == k:
+                        chosen_pred = est_aff
+                        model_name_used = f"{lbl} Regressor"
+
+        if req.affected_override is not None:
+            base_affected = float(req.affected_override)
+        else:
+            base_affected = max(1000.0, float(chosen_pred))
+    else:
+        base_affected = req.affected_override if req.affected_override is not None else float(75000 * req.severity)
 
     model_sigma = get_impact_sigma("model_prediction")
     district_inputs = {}
@@ -727,7 +808,9 @@ def simulate_service(
         planning_level=req.planning_level.value,
         total_affected_simulated=total_sim_affected,
         affected_capped_flag=capped_flag,
-        results=results_list
+        results=results_list,
+        model_used=model_name_used,
+        ensemble_comparison=ensemble_comp
     )
 
 def allocate_service(
@@ -858,3 +941,79 @@ def allocate_service(
         constraint_checks=constraints,
         method_comparison=baselines
     )
+
+def export_pdf_service(
+    app_state: Any,
+    req: AllocationRequest,
+    user: Optional[User] = None,
+    db: Optional[Session] = None
+) -> Path:
+    """Generate official NDMA/SDMA incident situation report PDF and return file path."""
+    import hashlib
+    epicentre = req.epicentre or "Pune"
+    hazard_str = req.hazard.value if hasattr(req.hazard, "value") else str(req.hazard or "Flood")
+    severity_val = float(req.severity or 1.0)
+
+    # 1. Simulate demands & risks
+    sim_req = SimulationRequest(
+        epicentre=epicentre,
+        hazard=req.hazard or "Flood",
+        severity=severity_val,
+        planning_level=req.planning_level or PlanningLevel.P50,
+        stock_adjustment_pct=req.stock_adjustment_pct or 0.0,
+        custom_stocks=req.custom_stocks
+    )
+    sim_res = simulate_service(app_state, sim_req, user=user, db=db)
+
+    # Format simulation DataFrame
+    sim_data = []
+    for r in sim_res.results:
+        sim_data.append({
+            "district": r.district,
+            "medicine": r.medicine,
+            "demand_p50": r.demand_p50,
+            "selected_planning_demand": r.selected_planning_demand,
+            "available_stock": r.available_stock,
+            "shortage_probability": r.shortage_probability,
+            "risk_level": r.risk_level
+        })
+    sim_df = pd.DataFrame(sim_data)
+
+    # 2. Run OR-Tools SCIP Allocation
+    region_demands = {d: {} for d in MAHARASHTRA_DISTRICTS}
+    region_stocks = {d: {} for d in MAHARASHTRA_DISTRICTS}
+    region_risks = {d: {} for d in MAHARASHTRA_DISTRICTS}
+    for item in sim_res.results:
+        d = item.district
+        m = item.medicine
+        region_demands[d][m] = item.selected_planning_demand
+        region_stocks[d][m] = item.available_stock
+        region_risks[d][m] = item.risk_level
+
+    distances_df = getattr(app_state, "distances_df", None)
+    plan_df, _ = solve_resource_allocation(
+        region_demands=region_demands,
+        region_stocks=region_stocks,
+        region_risks=region_risks,
+        distances_df=distances_df,
+        safety_reserve_ratio=req.safety_reserve_ratio or 0.60
+    )
+
+    # 3. Create tamper-evident digital seal
+    seed_str = f"{epicentre}-{hazard_str}-{severity_val}-{sim_res.total_affected_simulated}-{datetime.now().isoformat()}"
+    sha_seal = hashlib.sha256(seed_str.encode("utf-8")).hexdigest()
+
+    # 4. Generate PDF Report
+    from src.reporting.export import generate_pdf_situation_report
+    out_pdf = settings.REPORTS_DIR / f"NDMA_SITREP_{epicentre}_{hazard_str}.pdf"
+    generate_pdf_situation_report(
+        sim_df=sim_df,
+        alloc_df=plan_df,
+        out_path=out_pdf,
+        epicentre=epicentre,
+        hazard=hazard_str,
+        severity=severity_val,
+        model_used=sim_res.model_used or "Heterogeneous Voting Ensemble",
+        sha256_hash=sha_seal
+    )
+    return out_pdf

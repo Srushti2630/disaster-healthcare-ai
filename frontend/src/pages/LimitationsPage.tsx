@@ -142,6 +142,70 @@ export const LimitationsPage: React.FC = () => {
             </p>
           </div>
         </div>
+
+        {/* Ensemble & Model Comparison Table */}
+        <div className="mt-4 pt-4 border-t border-slate-100">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-bold text-slate-800">
+              Heterogeneous Ensemble Model Benchmark Comparison
+            </h3>
+            <span className="text-[11px] bg-emerald-50 text-emerald-700 px-2.5 py-0.5 rounded-full border border-emerald-200 font-semibold">
+              Time-Split Test Set (N=78)
+            </span>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="min-w-full divide-y divide-slate-200 text-xs">
+              <thead>
+                <tr className="bg-slate-100 text-slate-700 font-semibold">
+                  <th className="py-2.5 px-3 text-left">Model Architecture</th>
+                  <th className="py-2.5 px-3 text-left">Technique</th>
+                  <th className="py-2.5 px-3 text-right">Test MAE (Log)</th>
+                  <th className="py-2.5 px-3 text-right">Test R²</th>
+                  <th className="py-2.5 px-3 text-right">Spearman ρ</th>
+                  <th className="py-2.5 px-3 text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                <tr className="hover:bg-slate-50">
+                  <td className="py-2 px-3 font-semibold text-slate-800">Ridge Regression</td>
+                  <td className="py-2 px-3 text-slate-600">L2 Regularized Linear</td>
+                  <td className="py-2 px-3 text-right font-mono">{metricsData?.models_benchmarked?.Ridge?.test_mae_log ?? "2.8812"}</td>
+                  <td className="py-2 px-3 text-right font-mono">{metricsData?.models_benchmarked?.Ridge?.test_r2 ?? "0.2780"}</td>
+                  <td className="py-2 px-3 text-right font-mono">{metricsData?.models_benchmarked?.Ridge?.test_spearman_rho ?? "0.5199"}</td>
+                  <td className="py-2 px-3 text-center"><span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px]">Base Estimator</span></td>
+                </tr>
+                <tr className="hover:bg-slate-50">
+                  <td className="py-2 px-3 font-semibold text-slate-800">Random Forest</td>
+                  <td className="py-2 px-3 text-slate-600">Bagging Ensemble (100 Trees)</td>
+                  <td className="py-2 px-3 text-right font-mono">{metricsData?.models_benchmarked?.Random_Forest?.test_mae_log ?? "3.3398"}</td>
+                  <td className="py-2 px-3 text-right font-mono">{metricsData?.models_benchmarked?.Random_Forest?.test_r2 ?? "-0.0289"}</td>
+                  <td className="py-2 px-3 text-right font-mono">{metricsData?.models_benchmarked?.Random_Forest?.test_spearman_rho ?? "0.2933"}</td>
+                  <td className="py-2 px-3 text-center"><span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px]">Base Estimator</span></td>
+                </tr>
+                <tr className="hover:bg-slate-50">
+                  <td className="py-2 px-3 font-semibold text-slate-800">XGBoost Regressor</td>
+                  <td className="py-2 px-3 text-slate-600">Gradient Boosting (Trees)</td>
+                  <td className="py-2 px-3 text-right font-mono">{metricsData?.models_benchmarked?.XGBoost?.test_mae_log ?? "3.0908"}</td>
+                  <td className="py-2 px-3 text-right font-mono">{metricsData?.models_benchmarked?.XGBoost?.test_r2 ?? "0.1403"}</td>
+                  <td className="py-2 px-3 text-right font-mono">{metricsData?.models_benchmarked?.XGBoost?.test_spearman_rho ?? "0.4454"}</td>
+                  <td className="py-2 px-3 text-center"><span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px]">Base Estimator</span></td>
+                </tr>
+                <tr className="bg-emerald-50/70 border-t-2 border-emerald-300 font-semibold">
+                  <td className="py-2.5 px-3 font-bold text-emerald-950 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
+                    Voting Ensemble (Fused)
+                  </td>
+                  <td className="py-2.5 px-3 text-emerald-800">Heterogeneous Voting (Ridge + RF + XGB)</td>
+                  <td className="py-2.5 px-3 text-right font-mono text-emerald-950 font-bold">{metricsData?.models_benchmarked?.Voting_Ensemble?.test_mae_log ?? "2.9961"}</td>
+                  <td className="py-2.5 px-3 text-right font-mono text-emerald-950 font-bold">{metricsData?.models_benchmarked?.Voting_Ensemble?.test_r2 ?? "0.2159"}</td>
+                  <td className="py-2.5 px-3 text-right font-mono text-emerald-950 font-bold">{metricsData?.models_benchmarked?.Voting_Ensemble?.test_spearman_rho ?? "0.5026"}</td>
+                  <td className="py-2.5 px-3 text-center"><span className="px-2 py-0.5 bg-emerald-600 text-white font-bold rounded text-[10px]">ACTIVE PROD</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       {/* Honest Scientific Limitations List */}

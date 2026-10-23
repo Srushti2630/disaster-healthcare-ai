@@ -5,7 +5,7 @@ import { ProvenanceBadge } from "../components/ProvenanceBadge";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import { ErrorAlert } from "../components/ErrorAlert";
 import { AllocationResponse } from "../types";
-import { GitBranch, CheckCircle2, ShieldAlert, Cpu, ArrowRight } from "lucide-react";
+import { GitBranch, CheckCircle2, ShieldAlert, Cpu, ArrowRight, FileDown } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -23,6 +23,26 @@ export const AllocationPage: React.FC = () => {
   const [planningLevel, setPlanningLevel] = useState<"P50" | "P75" | "P90">("P50");
   const [stratumView, setStratumView] = useState<"overall" | "restricted">("overall");
   const [allocationData, setAllocationData] = useState<AllocationResponse | null>(null);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+
+  const handleDownloadPdf = async () => {
+    setIsDownloadingPdf(true);
+    setPdfError(null);
+    try {
+      await api.downloadPdfSitrep({
+        epicentre,
+        hazard: "Flood",
+        severity: 1.0,
+        planning_level: planningLevel,
+        safety_reserve_ratio: Number(safetyReserveRatio),
+      });
+    } catch (err: any) {
+      setPdfError(err?.message || "Failed to download situation report PDF.");
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  };
 
   // Fetch benchmark baselines (20-scenario comparison)
   const { data: baselinesData } = useQuery({
@@ -143,7 +163,20 @@ export const AllocationPage: React.FC = () => {
           <GitBranch className="w-4 h-4 mr-2" />
           {allocateMutation.isPending ? "Solving MIP via SCIP..." : "Solve SCIP Optimal Allocation"}
         </button>
+
+        <button
+          type="button"
+          onClick={handleDownloadPdf}
+          disabled={isDownloadingPdf}
+          className="inline-flex items-center px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg text-xs shadow-sm transition-colors disabled:opacity-50"
+          title="Download Official Government Incident Situation Report in PDF format"
+        >
+          <FileDown className="w-4 h-4 mr-2" />
+          {isDownloadingPdf ? "Compiling SITREP PDF..." : "Export Official SITREP (PDF)"}
+        </button>
       </form>
+
+      {pdfError && <ErrorAlert message={pdfError} />}
 
       {allocateMutation.isPending && (
         <LoadingSpinner message="Solving Integer Programming across 35 district nodes via Google OR-Tools SCIP..." />
@@ -156,6 +189,33 @@ export const AllocationPage: React.FC = () => {
       {/* Allocation Output */}
       {allocationData && (
         <div className="space-y-8">
+          {/* Official NDMA SITREP Export Card */}
+          <div className="flex flex-wrap items-center justify-between gap-4 bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white rounded-2xl p-5 shadow-sm border border-slate-800">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  OFFICIAL NDMA / SDMA SITREP READY
+                </span>
+                <span className="text-xs text-slate-300">Incident Dossier</span>
+              </div>
+              <h3 className="text-base font-bold text-white mt-1">
+                {epicentre} Incident Healthcare Response Dossier
+              </h3>
+              <p className="text-xs text-slate-300">
+                Official government report including multi-model demand projections, {allocationData.transfers.length} inter-district dispatch routes, and SHA-256 tamper-evident seal.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleDownloadPdf}
+              disabled={isDownloadingPdf}
+              className="inline-flex items-center px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs shadow-md transition-colors disabled:opacity-50"
+            >
+              <FileDown className="w-4 h-4 mr-2" />
+              {isDownloadingPdf ? "Compiling SITREP PDF..." : "Download Official SITREP (PDF)"}
+            </button>
+          </div>
+
           {/* Metrics Overview Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">

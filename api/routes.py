@@ -20,7 +20,7 @@ from api.services import (
     get_districts_service, get_metrics_service, get_backtest_service, get_baselines_service,
     predict_impact_service, get_global_explanation_service, explain_prediction_service,
     save_user_stock_service, get_user_stock_service, reset_user_stock_service,
-    simulate_service, allocate_service
+    simulate_service, allocate_service, export_pdf_service
 )
 
 router = APIRouter()
@@ -170,3 +170,23 @@ async def allocate_resources(
 ):
     """Solve multi-objective MIP resource allocation problem using Google OR-Tools SCIP solver."""
     return allocate_service(request.app.state, body, user=current_user, db=db)
+
+@router.post("/api/export/pdf-sitrep", summary="Generate & Download Official NDMA Incident Report PDF", tags=["Reporting"])
+async def export_pdf_sitrep(
+    request: Request,
+    body: AllocationRequest,
+    current_user: User = Depends(require_role(["officer", "coordinator", "admin", "viewer"])),
+    db: Session = Depends(get_db)
+):
+    """Generate official NDMA/SDMA executive situation report PDF with OR-Tools transfers and SHA-256 seal."""
+    pdf_path = export_pdf_service(request.app.state, body, user=current_user, db=db)
+    if not pdf_path.exists():
+        raise HTTPException(status_code=500, detail="Failed to generate PDF situation report.")
+    hazard_name = body.hazard.value if hasattr(body.hazard, "value") else body.hazard
+    filename = f"NDMA_SITREP_{body.epicentre or 'Maharashtra'}_{hazard_name}.pdf"
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename=filename,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )

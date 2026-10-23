@@ -59,3 +59,4 @@ models/*.joblib
 *.log
 scratch/
 reports/test_report.*
+reports/*.pdf

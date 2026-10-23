@@ -2,7 +2,7 @@
   "dataset": "EM-DAT India Historical Disasters (REAL)",
   "sample_size": 512,
   "split_policy": "Time-based (Train <= 2012, Val 2013-2018, Test 2019+)",
-  "impact_model_residual_sigma": 3.7186,
+  "impact_model_residual_sigma": 3.4398,
   "models_benchmarked": {
     "Median_Baseline": {
       "test_mae_log": 3.5717,
@@ -19,17 +19,24 @@
       "accuracy_within_half_order_of_magnitude_pct": 20.5
     },
     "Random_Forest": {
-      "test_mae_log": 3.3204,
-      "test_rmse_log": 4.0578,
-      "test_r2": -0.0174,
-      "test_spearman_rho": 0.3078,
-      "accuracy_within_half_order_of_magnitude_pct": 23.1
+      "test_mae_log": 3.3398,
+      "test_rmse_log": 4.0807,
+      "test_r2": -0.0289,
+      "test_spearman_rho": 0.2933,
+      "accuracy_within_half_order_of_magnitude_pct": 21.8
     },
     "XGBoost": {
       "test_mae_log": 3.0908,
       "test_rmse_log": 3.73,
       "test_r2": 0.1403,
       "test_spearman_rho": 0.4454,
+      "accuracy_within_half_order_of_magnitude_pct": 24.4
+    },
+    "Voting_Ensemble": {
+      "test_mae_log": 2.9961,
+      "test_rmse_log": 3.5622,
+      "test_r2": 0.2159,
+      "test_spearman_rho": 0.5026,
       "accuracy_within_half_order_of_magnitude_pct": 24.4
     }
   },

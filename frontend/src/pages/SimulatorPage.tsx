@@ -8,7 +8,7 @@ import { DistrictMap } from "../components/DistrictMap";
 import { SimulationResponse, DistrictMedicineDemand } from "../types";
 import { PredictionExplanationPanel } from "../components/PredictionExplanationPanel";
 import { StockEditingTable } from "../components/StockEditingTable";
-import { Play, Info, AlertTriangle, Filter } from "lucide-react";
+import { Play, Info, AlertTriangle, Filter, FileDown } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -35,8 +35,29 @@ export const SimulatorPage: React.FC = () => {
   const [planningLevel, setPlanningLevel] = useState<"P50" | "P75" | "P90">("P50");
   const [stockAdjustmentPct, setStockAdjustmentPct] = useState(0);
   const [affectedOverride, setAffectedOverride] = useState<string>("");
+  const [modelChoice, setModelChoice] = useState("ensemble");
   const [selectedMedicineFilter, setSelectedMedicineFilter] = useState("antibiotics");
   const [simulationResult, setSimulationResult] = useState<SimulationResponse | null>(null);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+
+  const handleDownloadPdf = async () => {
+    setIsDownloadingPdf(true);
+    setPdfError(null);
+    try {
+      await api.downloadPdfSitrep({
+        epicentre,
+        hazard,
+        severity: Number(severity),
+        planning_level: planningLevel,
+        stock_adjustment_pct: Number(stockAdjustmentPct),
+      });
+    } catch (err: any) {
+      setPdfError(err?.message || "Failed to download situation report PDF.");
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  };
 
   const { data: geoJsonData } = useQuery({
     queryKey: ["geoDistricts"],
@@ -58,6 +79,7 @@ export const SimulatorPage: React.FC = () => {
       severity: Number(severity),
       planning_level: planningLevel,
       stock_adjustment_pct: Number(stockAdjustmentPct),
+      model_choice: modelChoice,
     };
     if (affectedOverride && !isNaN(Number(affectedOverride))) {
       payload.affected_override = Number(affectedOverride);
@@ -170,6 +192,28 @@ export const SimulatorPage: React.FC = () => {
           </div>
 
           <div className="md:col-span-2">
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center justify-between">
+              <span>Prediction Model Architecture</span>
+              <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                ⭐ Ensemble Powered
+              </span>
+            </label>
+            <select
+              value={modelChoice}
+              onChange={(e) => setModelChoice(e.target.value)}
+              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:bg-white"
+            >
+              <option value="ensemble">🟢 Heterogeneous Voting Ensemble (Ridge + Random Forest + XGBoost) — Active Recommendation</option>
+              <option value="xgb">🔵 XGBoost Regressor (Gradient Boosting Base Estimator)</option>
+              <option value="rf">🟡 Random Forest Regressor (Bagging Base Estimator)</option>
+              <option value="ridge">⚪ Ridge Linear Regressor (L2 Baseline)</option>
+            </select>
+            <p className="text-[11px] text-slate-500 mt-1">
+              Select which ML model calculates baseline disaster casualties for the 2,000 Monte-Carlo draws.
+            </p>
+          </div>
+
+          <div className="md:col-span-2">
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
               Planning Demand Quantile (Decision-Support Level)
             </label>
@@ -243,7 +287,18 @@ export const SimulatorPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex justify-end pt-2">
+        <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
+          <button
+            type="button"
+            onClick={handleDownloadPdf}
+            disabled={isDownloadingPdf}
+            className="inline-flex items-center px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg text-xs shadow-sm transition-colors disabled:opacity-50"
+            title="Download Official Government Situation Report in PDF format"
+          >
+            <FileDown className="w-4 h-4 mr-2" />
+            {isDownloadingPdf ? "Compiling SITREP PDF..." : "Export Official SITREP (.PDF)"}
+          </button>
+
           <button
             type="submit"
             disabled={simulateMutation.isPending}
@@ -254,6 +309,8 @@ export const SimulatorPage: React.FC = () => {
           </button>
         </div>
       </form>
+
+      {pdfError && <ErrorAlert message={pdfError} />}
 
       {simulateMutation.isPending && (
         <LoadingSpinner message="Sampling 2,000 draws (Impact Model Residual Sigma x WHO Consumption Norms)..." />
@@ -286,13 +343,86 @@ export const SimulatorPage: React.FC = () => {
               </p>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={handleDownloadPdf}
+                disabled={isDownloadingPdf}
+                className="inline-flex items-center px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs shadow transition-colors disabled:opacity-50"
+              >
+                <FileDown className="w-3.5 h-3.5 mr-1.5" />
+                {isDownloadingPdf ? "Downloading..." : "Official SITREP PDF"}
+              </button>
+              <span className="px-3 py-1 bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 rounded-lg text-xs font-semibold">
+                Architecture: {simulationResult.model_used || "Voting Ensemble"}
+              </span>
               <span className="px-3 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs font-semibold">
                 Quantile: {simulationResult.planning_level}
               </span>
               <ProvenanceBadge tag="ESTIMATED_SIMULATION" />
             </div>
           </div>
+
+          {/* Live Multi-Model Ensemble Comparison Card */}
+          {simulationResult.ensemble_comparison && (
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[11px] font-bold">
+                      ⭐ Ensemble Live Breakdown
+                    </span>
+                    <h3 className="text-base font-bold text-slate-900">
+                      Multi-Model Casualty Demand Comparison
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Direct comparison of casualty forecasts between individual base estimators vs. the Heterogeneous Voting Ensemble.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                {Object.entries(simulationResult.ensemble_comparison).map(([mName, count]) => {
+                  const isEnsemble = mName.includes("Ensemble");
+                  return (
+                    <div
+                      key={mName}
+                      className={`p-4 rounded-xl border transition-all ${
+                        isEnsemble
+                          ? "bg-blue-50/70 border-blue-300 ring-2 ring-blue-500/30"
+                          : "bg-slate-50 border-slate-200"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                          {mName}
+                        </span>
+                        {isEnsemble && (
+                          <span className="px-1.5 py-0.5 bg-blue-600 text-white text-[10px] font-bold rounded">
+                            ACTIVE
+                          </span>
+                        )}
+                      </div>
+                      <p className={`text-xl font-extrabold mt-2 ${isEnsemble ? "text-blue-900" : "text-slate-800"}`}>
+                        {count.toLocaleString()}
+                      </p>
+                      <p className="text-[10px] text-slate-500 mt-1">
+                        {isEnsemble ? "Blended Consensus (Lower Variance)" : "Individual Base Estimator"}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-xl text-xs text-slate-600 border border-slate-200 flex items-start gap-2">
+                <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                <span>
+                  <strong>Review Presentation Talking Point:</strong> Single models suffer from blind spots: tree models (Random Forest, XGBoost) split sharply on few samples, while linear models (Ridge) can over-project. The <strong>Voting Ensemble</strong> fuses all three, providing a balanced, resilient consensus prediction for disaster healthcare planning.
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* Choropleth Map with Risk Colors */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">

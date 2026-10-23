@@ -151,6 +151,8 @@ export interface SimulationResponse {
   total_affected_simulated: number;
   affected_capped_flag: boolean;
   results: DistrictMedicineDemand[];
+  model_used?: string;
+  ensemble_comparison?: Record<string, number>;
 }
 
 export interface TransferRow {
