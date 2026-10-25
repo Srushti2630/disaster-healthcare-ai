@@ -20,12 +20,16 @@ from api.schemas import (
     FeatureContribution, LocalExplanationResponse, GlobalFeatureImportance, GlobalExplanationResponse,
     StockItem, UpdateStockRequest, UserStockResponse,
     SimulationRequest, SimulationResponse, DistrictMedicineDemand,
-    AllocationRequest, AllocationResponse, TransferRow, ConstraintCheck, MethodComparisonSummary,
+    AllocationRequest, AllocationResponse, HistoricalAllocationScenario, TransferRow,
+    ConstraintCheck, MethodComparisonSummary,
     PlanningLevel, ProvenanceTag
 )
-from src.data.boundaries import MAHARASHTRA_DISTRICTS, haversine_distance
-from src.engine.demand import load_demand_params, estimate_district_stocks, get_impact_sigma
-from src.engine.monte_carlo import run_monte_carlo_district_simulation
+from src.data.boundaries import MAHARASHTRA_DISTRICTS
+from src.engine.demand import load_demand_params, estimate_district_stocks
+from src.engine.monte_carlo import (
+    compute_spatial_allocation_weights,
+    run_monte_carlo_district_simulation
+)
 from src.optimise import (
     solve_resource_allocation, evaluate_allocation_plan,
     solve_proportional_baseline, solve_greedy_nearest_baseline,
@@ -37,6 +41,59 @@ FIXED_IMPACT_CAVEAT = (
     "The impact model ranks disaster events by relative severity and is calibrated for prioritization; "
     "it underestimates very large outliers by ~30-150x. Prediction intervals are conservative (94.9% test coverage vs 90% nominal target)."
 )
+
+SUPPORTED_ALLOCATION_HAZARDS = {
+    "Flood", "Storm", "Earthquake", "Epidemic", "Extreme temperature", "Mass movement (wet)"
+}
+
+
+def get_historical_allocation_scenarios() -> List[HistoricalAllocationScenario]:
+    """Return observed EM-DAT events that are mapped to Maharashtra districts."""
+    events_path = settings.PROCESSED_DIR / "emdat_events.csv"
+    if not events_path.exists():
+        raise HTTPException(status_code=503, detail="Processed EM-DAT events are unavailable.")
+
+    events = pd.read_csv(events_path)
+    required = {"event_id", "start_year", "disaster_type", "disaster_subtype", "total_affected", "districts_affected", "scope", "is_maharashtra"}
+    missing = required.difference(events.columns)
+    if missing:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Processed EM-DAT events are missing required fields: {', '.join(sorted(missing))}"
+        )
+
+    events["total_affected"] = pd.to_numeric(events["total_affected"], errors="coerce")
+    events["start_year"] = pd.to_numeric(events["start_year"], errors="coerce")
+    events = events[
+        events["is_maharashtra"].astype(str).str.lower().isin(["true", "1"])
+        & events["total_affected"].gt(0)
+        & events["scope"].isin(["district", "multi-district"])
+        & events["disaster_type"].isin(SUPPORTED_ALLOCATION_HAZARDS)
+    ]
+
+    scenarios = []
+    for _, row in events.iterrows():
+        districts = [
+            name.strip()
+            for name in str(row["districts_affected"]).split(",")
+            if name.strip() in MAHARASHTRA_DISTRICTS
+        ]
+        if not districts:
+            continue
+        scenarios.append(HistoricalAllocationScenario(
+            event_id=str(row["event_id"]),
+            year=int(row["start_year"]),
+            hazard=str(row["disaster_type"]),
+            subtype=str(row["disaster_subtype"]),
+            affected_population=int(row["total_affected"]),
+            districts_affected=districts,
+            scope=str(row["scope"]),
+            provenance=ProvenanceTag.REAL
+        ))
+
+    scenarios.sort(key=lambda event: (-event.affected_population, -event.year, event.event_id))
+    return scenarios
+
 
 LIMITATIONS_LIST = [
     "Weather features excluded from training to prevent simulated noise bias (used exclusively for live what-if scenarios).",
@@ -88,6 +145,9 @@ def get_districts_service(app_state: Any) -> DistrictListResponse:
         fac_copy = fac_df.copy()
         fac_copy["join_key"] = fac_copy["district"].astype(str).str.strip().str.lower()
         cols = [c for c in ["join_key", "total_facilities", "public_facilities", "private_facilities"] if c in fac_copy.columns]
+        overlapping_facility_cols = [c for c in cols if c != "join_key" and c in merged.columns]
+        if overlapping_facility_cols:
+            merged = merged.drop(columns=overlapping_facility_cols)
         merged = pd.merge(merged, fac_copy[cols], on="join_key", how="left")
 
     records: List[DistrictDetail] = []
@@ -658,8 +718,6 @@ def simulate_service(
     pop_df = app_state.pop_df
     pop_map = dict(zip(pop_df["district"], pop_df["population"])) if not pop_df.empty else {d: 2000000 for d in MAHARASHTRA_DISTRICTS}
 
-    epi_coords = (MAHARASHTRA_DISTRICTS[req.epicentre]["lat"], MAHARASHTRA_DISTRICTS[req.epicentre]["lon"])
-
     bundle = getattr(app_state, "impact_bundle", None)
     ensemble_comp = {}
     model_name_used = "Voting Ensemble (Ridge + Random Forest + XGBoost)"
@@ -701,37 +759,16 @@ def simulate_service(
     else:
         base_affected = req.affected_override if req.affected_override is not None else float(75000 * req.severity)
 
-    model_sigma = get_impact_sigma("model_prediction")
-    district_inputs = {}
-    total_sim_affected = 0
-    capped_flag = False
-
-    for d_name, info in MAHARASHTRA_DISTRICTS.items():
-        dist_km = haversine_distance(epi_coords[0], epi_coords[1], info["lat"], info["lon"])
-        # Spatial attenuation with epicentre distance (decay scale ~140 km)
-        attenuation = np.exp(-dist_km / 140.0)
-        raw_affected = base_affected * attenuation
-
-        # CRITICAL RULE: Cap affected population at district population
-        district_pop = float(pop_map.get(d_name, 3000000))
-        if raw_affected > district_pop:
-            capped_flag = True
-            capped_affected = district_pop
-        else:
-            capped_affected = raw_affected
-
-        total_sim_affected += int(capped_affected)
-
-        aff_log = np.log1p(capped_affected)
-        inj_log = max(0.0, aff_log - 2.0)
-
-        district_inputs[d_name] = {
-            "hazard_type": req.hazard.value,
-            "affected_mean_log": float(aff_log),
-            "affected_std_log": float(model_sigma),
-            "injured_mean_log": float(inj_log),
-            "injured_std_log": 0.50
-        }
+    spatial_weights = compute_spatial_allocation_weights(epicentre=req.epicentre, pop_df=pop_df)
+    affected_by_district = {
+        district: min(base_affected * spatial_weights[district], float(pop_map.get(district, 3000000)))
+        for district in MAHARASHTRA_DISTRICTS
+    }
+    total_sim_affected = int(sum(affected_by_district.values()))
+    capped_flag = any(
+        base_affected * spatial_weights[district] > float(pop_map.get(district, 3000000))
+        for district in MAHARASHTRA_DISTRICTS
+    )
 
     # Handle stock adjustments
     base_stocks = estimate_district_stocks()
@@ -767,7 +804,10 @@ def simulate_service(
 
     # Run Monte-Carlo simulation (2000 draws)
     sim_df = run_monte_carlo_district_simulation(
-        district_impact_predictions=district_inputs,
+        epicentre=req.epicentre,
+        event_affected_mean_log=float(np.log1p(base_affected)),
+        hazard_type=req.hazard.value,
+        severity=1.0,
         district_stocks=adjusted_stocks,
         n_draws=2000,
         horizon_days=7,
@@ -824,11 +864,29 @@ def allocate_service(
     if epicentre not in MAHARASHTRA_DISTRICTS:
         raise HTTPException(status_code=400, detail=f"Invalid district '{epicentre}'")
 
+    reference_event = None
+    if req.reference_event_id:
+        if req.affected_override is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="Choose either an EM-DAT reference event or a manual affected-population value, not both."
+            )
+        reference_event = next(
+            (event for event in get_historical_allocation_scenarios() if event.event_id == req.reference_event_id),
+            None
+        )
+        if reference_event is None:
+            raise HTTPException(status_code=400, detail="The selected EM-DAT event is unavailable or not Maharashtra-specific.")
+
     # Run simulation for allocation inputs
     sim_req = SimulationRequest(
         epicentre=epicentre,
-        hazard=req.hazard or "Flood",
+        hazard=reference_event.hazard if reference_event else (req.hazard or "Flood"),
         severity=req.severity or 1.0,
+        affected_override=(
+            float(reference_event.affected_population)
+            if reference_event else req.affected_override
+        ),
         planning_level=req.planning_level or PlanningLevel.P50,
         stock_adjustment_pct=req.stock_adjustment_pct or 0.0,
         custom_stocks=req.custom_stocks
@@ -846,6 +904,9 @@ def allocate_service(
         region_demands[d][m] = item.selected_planning_demand
         region_stocks[d][m] = item.available_stock
         region_risks[d][m] = item.risk_level
+
+    total_planned_demand = sum(demand for medicines in region_demands.values() for demand in medicines.values())
+    total_available_stock = sum(stock for medicines in region_stocks.values() for stock in medicines.values())
 
     distances_df = getattr(app_state, "distances_df", None)
 
@@ -885,12 +946,23 @@ def allocate_service(
     plan_none = pd.DataFrame(columns=cols)
     eval_none = evaluate_allocation_plan(plan_none, region_demands, region_stocks, region_risks, distances_df)
 
+    def comparison(method: str, evaluation: dict) -> MethodComparisonSummary:
+        return MethodComparisonSummary(
+            method=method,
+            **evaluation,
+            cost_index=evaluation["cost"],
+            unmet_demand_pct=(
+                evaluation["unmet_demand"] / total_planned_demand * 100.0
+                if total_planned_demand > 0 else 0.0
+            )
+        )
+
     baselines = [
-        MethodComparisonSummary(method="OR-Tools SCIP", **eval_result, cost_index=eval_result["cost"]),
-        MethodComparisonSummary(method="Greedy Largest Surplus", **eval_surp, cost_index=eval_surp["cost"]),
-        MethodComparisonSummary(method="Greedy Nearest", **eval_near, cost_index=eval_near["cost"]),
-        MethodComparisonSummary(method="Proportional Population", **eval_prop, cost_index=eval_prop["cost"]),
-        MethodComparisonSummary(method="No Redistribution", **eval_none, cost_index=eval_none["cost"])
+        comparison("OR-Tools SCIP", eval_result),
+        comparison("Greedy Largest Surplus", eval_surp),
+        comparison("Greedy Nearest", eval_near),
+        comparison("Proportional Population", eval_prop),
+        comparison("No Redistribution", eval_none)
     ]
 
     # Check specific constraints
@@ -937,6 +1009,23 @@ def allocate_service(
         demand_reduction_pct=summary["demand_reduction_pct"],
         min_coverage_before=summary["min_coverage_before"],
         min_coverage_after=summary["min_coverage_after"],
+        scenario_affected_population=sim_res.total_affected_simulated,
+        scenario_affected_provenance=ProvenanceTag.ESTIMATED_SIMULATION,
+        affected_population_override=(
+            float(reference_event.affected_population)
+            if reference_event else req.affected_override
+        ),
+        affected_override_provenance=(
+            ProvenanceTag.REAL if reference_event else (
+                ProvenanceTag.USER_PROVIDED if req.affected_override is not None else None
+            )
+        ),
+        reference_event_id=reference_event.event_id if reference_event else None,
+        total_planned_demand=round(total_planned_demand, 1),
+        demand_provenance=ProvenanceTag.ESTIMATED_SIMULATION,
+        total_available_stock=round(total_available_stock, 1),
+        stock_provenance=ProvenanceTag.ESTIMATED,
+        district_allocation_provenance=ProvenanceTag.ASSUMED,
         transfers=transfer_records,
         constraint_checks=constraints,
         method_comparison=baselines

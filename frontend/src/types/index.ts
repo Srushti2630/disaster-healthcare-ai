@@ -177,6 +177,7 @@ export interface ConstraintCheck {
 export interface MethodComparisonSummary {
   method: string;
   unmet_demand: number;
+  unmet_demand_pct?: number;
   cost_index: number;
   unit_km: number;
   route_km: number;
@@ -195,9 +196,30 @@ export interface AllocationResponse {
   demand_reduction_pct: number;
   min_coverage_before: number;
   min_coverage_after: number;
+  scenario_affected_population: number;
+  scenario_affected_provenance: ProvenanceTag;
+  affected_population_override?: number | null;
+  affected_override_provenance?: ProvenanceTag | null;
+  reference_event_id?: string | null;
+  total_planned_demand: number;
+  demand_provenance: ProvenanceTag;
+  total_available_stock: number;
+  stock_provenance: ProvenanceTag;
+  district_allocation_provenance: ProvenanceTag;
   transfers: TransferRow[];
   constraint_checks: ConstraintCheck;
   method_comparison: MethodComparisonSummary[];
+}
+
+export interface HistoricalAllocationScenario {
+  event_id: string;
+  year: number;
+  hazard: string;
+  subtype: string;
+  affected_population: number;
+  districts_affected: string[];
+  scope: string;
+  provenance: ProvenanceTag;
 }
 
 export interface User {

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { ProvenanceBadge } from "../components/ProvenanceBadge";
@@ -19,8 +19,11 @@ import {
 
 export const AllocationPage: React.FC = () => {
   const [epicentre, setEpicentre] = useState("Pune");
+  const [hazard, setHazard] = useState("Flood");
   const [safetyReserveRatio, setSafetyReserveRatio] = useState(0.60);
   const [planningLevel, setPlanningLevel] = useState<"P50" | "P75" | "P90">("P50");
+  const [referenceEventId, setReferenceEventId] = useState<string | null>(null);
+  const [affectedOverride, setAffectedOverride] = useState("");
   const [stratumView, setStratumView] = useState<"overall" | "restricted">("overall");
   const [allocationData, setAllocationData] = useState<AllocationResponse | null>(null);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
@@ -32,8 +35,10 @@ export const AllocationPage: React.FC = () => {
     try {
       await api.downloadPdfSitrep({
         epicentre,
-        hazard: "Flood",
+        hazard: selectedScenario?.hazard ?? hazard,
         severity: 1.0,
+        ...(affectedOverride.trim() ? { affected_override: Number(affectedOverride) } : {}),
+        ...(!affectedOverride.trim() && selectedScenario ? { reference_event_id: selectedScenario.event_id } : {}),
         planning_level: planningLevel,
         safety_reserve_ratio: Number(safetyReserveRatio),
       });
@@ -50,6 +55,30 @@ export const AllocationPage: React.FC = () => {
     queryFn: () => api.getBaselines(),
   });
 
+  const {
+    data: allocationScenarios = [],
+    isLoading: isLoadingAllocationScenarios,
+    error: allocationScenariosError,
+  } = useQuery({
+    queryKey: ["allocationScenarios"],
+    queryFn: () => api.getAllocationScenarios(),
+  });
+
+  useEffect(() => {
+    if (referenceEventId === null && allocationScenarios.length > 0) {
+      const defaultScenario = allocationScenarios[0];
+      setReferenceEventId(defaultScenario.event_id);
+      setEpicentre(defaultScenario.districts_affected[0]);
+      setHazard(defaultScenario.hazard);
+    }
+  }, [allocationScenarios, referenceEventId]);
+
+  const selectedScenario = allocationScenarios.find((event) => event.event_id === referenceEventId);
+  const districtOptions = Array.from(new Set([
+    "Pune", "Kolhapur", "Mumbai", "Nagpur", "Nashik", "Amravati",
+    ...allocationScenarios.flatMap((event) => event.districts_affected),
+  ])).sort();
+
   const allocateMutation = useMutation({
     mutationFn: (payload: any) => api.allocate(payload),
     onSuccess: (data) => {
@@ -61,8 +90,10 @@ export const AllocationPage: React.FC = () => {
     e.preventDefault();
     allocateMutation.mutate({
       epicentre,
-      hazard: "Flood",
+      hazard: selectedScenario?.hazard ?? hazard,
       severity: 1.0,
+      ...(affectedOverride.trim() ? { affected_override: Number(affectedOverride) } : {}),
+      ...(!affectedOverride.trim() && selectedScenario ? { reference_event_id: selectedScenario.event_id } : {}),
       planning_level: planningLevel,
       safety_reserve_ratio: Number(safetyReserveRatio),
     });
@@ -70,9 +101,9 @@ export const AllocationPage: React.FC = () => {
 
   const chartData = (allocationData?.method_comparison || baselinesData?.results || []).map((m: any) => ({
     name: m.method,
-    unmet_demand: Math.round(m.unmet_demand || m.unmet_demand_mean),
-    cost_index: Math.round(m.cost_index || m.cost_index_mean),
-    min_coverage: ((m.min_coverage || m.min_coverage_mean) * 100).toFixed(1),
+    unmet_demand: Math.round(m.unmet_demand ?? m.unmet_demand_mean ?? 0),
+    cost_index: Math.round(m.cost_index ?? m.cost_index_mean ?? 0),
+    min_coverage: ((m.min_coverage ?? m.min_coverage_mean ?? 0) * 100).toFixed(1),
   }));
 
   return (
@@ -116,12 +147,9 @@ export const AllocationPage: React.FC = () => {
             onChange={(e) => setEpicentre(e.target.value)}
             className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-blue-500"
           >
-            <option value="Pune">Pune</option>
-            <option value="Kolhapur">Kolhapur</option>
-            <option value="Mumbai">Mumbai</option>
-            <option value="Nagpur">Nagpur</option>
-            <option value="Nashik">Nashik</option>
-            <option value="Amravati">Amravati</option>
+            {districtOptions.map((district) => (
+              <option key={district} value={district}>{district}</option>
+            ))}
           </select>
         </div>
 
@@ -155,13 +183,79 @@ export const AllocationPage: React.FC = () => {
           />
         </div>
 
+        <div className="w-64">
+          <label htmlFor="reference-event" className="block text-xs font-semibold text-slate-700 mb-1.5">
+            Historical reference event <ProvenanceBadge tag="REAL" className="ml-1" />
+          </label>
+          <select
+            id="reference-event"
+            value={referenceEventId ?? ""}
+            onChange={(e) => {
+              const eventId = e.target.value;
+              setReferenceEventId(eventId);
+              setAffectedOverride("");
+              const event = allocationScenarios.find((item) => item.event_id === eventId);
+              if (event) {
+                setEpicentre(event.districts_affected[0]);
+                setHazard(event.hazard);
+              }
+            }}
+            disabled={isLoadingAllocationScenarios || allocationScenarios.length === 0}
+            className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+          >
+            <option value="">
+              {isLoadingAllocationScenarios ? "Loading observed events..." : "Use impact model estimate"}
+            </option>
+            {allocationScenarios.map((event) => (
+              <option key={event.event_id} value={event.event_id}>
+                {event.year} · {event.hazard} · {event.affected_population.toLocaleString()} affected
+              </option>
+            ))}
+          </select>
+          {selectedScenario && (
+            <p className="mt-1 text-[10px] text-slate-500">
+              {selectedScenario.event_id}: {selectedScenario.subtype}; mapped districts: {selectedScenario.districts_affected.join(", ")}.
+            </p>
+          )}
+          {!selectedScenario && !isLoadingAllocationScenarios && !allocationScenariosError && (
+            <p className="mt-1 text-[10px] text-slate-500">Select a real event or enter a scenario total below.</p>
+          )}
+        </div>
+
+        <div className="w-56">
+          <label htmlFor="affected-override" className="block text-xs font-semibold text-slate-700 mb-1.5">
+            Manual affected population <ProvenanceBadge tag="USER-PROVIDED" className="ml-1" />
+          </label>
+          <input
+            id="affected-override"
+            type="number"
+            min="0"
+            max="150000000"
+            step="1000"
+            inputMode="numeric"
+            placeholder="Use model estimate"
+            value={affectedOverride}
+            onChange={(e) => {
+              const value = e.target.value;
+              setAffectedOverride(value);
+              if (value.trim()) setReferenceEventId("");
+            }}
+            className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-blue-500"
+          />
+          <p className="mt-1 text-[10px] text-slate-500">Optional. Leave blank to use the impact model estimate.</p>
+        </div>
+
         <button
           type="submit"
-          disabled={allocateMutation.isPending}
+          disabled={allocateMutation.isPending || (isLoadingAllocationScenarios && !affectedOverride.trim())}
           className="inline-flex items-center px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-xs shadow-sm transition-colors disabled:opacity-50"
         >
           <GitBranch className="w-4 h-4 mr-2" />
-          {allocateMutation.isPending ? "Solving MIP via SCIP..." : "Solve SCIP Optimal Allocation"}
+          {allocateMutation.isPending
+            ? "Solving MIP via SCIP..."
+            : isLoadingAllocationScenarios && !affectedOverride.trim()
+              ? "Loading EM-DAT scenarios..."
+              : "Solve SCIP Optimal Allocation"}
         </button>
 
         <button
@@ -176,6 +270,10 @@ export const AllocationPage: React.FC = () => {
         </button>
       </form>
 
+      {allocationScenariosError && (
+        <ErrorAlert message={`Could not load EM-DAT reference scenarios: ${allocationScenariosError.message}`} />
+      )}
+
       {pdfError && <ErrorAlert message={pdfError} />}
 
       {allocateMutation.isPending && (
@@ -189,6 +287,34 @@ export const AllocationPage: React.FC = () => {
       {/* Allocation Output */}
       {allocationData && (
         <div className="space-y-8">
+          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-700">
+            Scenario result:{" "}
+            <strong>{allocationData.scenario_affected_population.toLocaleString()}</strong> affected{" "}
+            <ProvenanceBadge tag={allocationData.scenario_affected_provenance} />.
+            {allocationData.affected_population_override != null && (
+              <>
+                {" "}{allocationData.reference_event_id ? "EM-DAT event total:" : "User-provided event total:"}{" "}
+                <strong>{allocationData.affected_population_override.toLocaleString()}</strong>{" "}
+                <ProvenanceBadge
+                  tag={allocationData.affected_override_provenance ?? "USER-PROVIDED"}
+                />
+                {allocationData.reference_event_id && ` (${allocationData.reference_event_id})`}.
+              </>
+            )}{" "}
+            District distribution{" "}
+            <ProvenanceBadge tag={allocationData.district_allocation_provenance} />;{" "}
+            <strong>{allocationData.total_planned_demand.toLocaleString()}</strong> planned medicine units{" "}
+            <ProvenanceBadge tag={allocationData.demand_provenance} />;{" "}
+            <strong>{allocationData.total_available_stock.toLocaleString()}</strong> estimated stock units{" "}
+            <ProvenanceBadge tag={allocationData.stock_provenance} />.
+            {allocationData.unmet_demand_before === 0 && (
+              <span className="block mt-1 text-slate-500">
+                No shortage is projected for these inputs, so zero transfers and zero transport cost are expected.
+                Enter an event-specific affected population or update available stocks to explore a shortage scenario.
+              </span>
+            )}
+          </div>
+
           {/* Official NDMA SITREP Export Card */}
           <div className="flex flex-wrap items-center justify-between gap-4 bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white rounded-2xl p-5 shadow-sm border border-slate-800">
             <div>
@@ -435,8 +561,8 @@ export const AllocationPage: React.FC = () => {
               <tr>
                 <th className="py-3 px-3">Method</th>
                 <th className="py-3 px-3">Unmet Demand (units)</th>
-                <th className="py-3 px-3">Unmet (% Demand: Mean)</th>
-                <th className="py-3 px-3">Unmet % (Median / P75 / P90)</th>
+                <th className="py-3 px-3">{allocationData ? "Unmet (% of demand)" : "Unmet (% Demand: Mean)"}</th>
+                <th className="py-3 px-3">{allocationData ? "Distribution" : "Unmet % (Median / P75 / P90)"}</th>
                 <th className="py-3 px-3">Cost Index (Logistics)</th>
                 <th className="py-3 px-3">Route-KM</th>
                 <th className="py-3 px-3">Min Coverage</th>
@@ -453,26 +579,32 @@ export const AllocationPage: React.FC = () => {
                   <tr key={idx} className={isSCIP ? "bg-blue-50/70 font-semibold" : "hover:bg-slate-50"}>
                     <td className="py-2.5 px-3 text-slate-900">{b.method}</td>
                     <td className="py-2.5 px-3 text-slate-800">
-                      {(b.unmet_demand || b.unmet_demand_mean).toLocaleString()}
+                      {(b.unmet_demand ?? b.unmet_demand_mean)?.toLocaleString() ?? "—"}
                     </td>
                     <td className="py-2.5 px-3 font-semibold text-slate-900">
-                      {b.unmet_pct_mean !== undefined && b.unmet_pct_mean !== null
-                        ? `${Number(b.unmet_pct_mean).toFixed(2)}%`
-                        : "—"}
+                      {allocationData
+                        ? `${Number(b.unmet_demand_pct ?? 0).toFixed(2)}%`
+                        : b.unmet_pct_mean !== undefined && b.unmet_pct_mean !== null
+                          ? `${Number(b.unmet_pct_mean).toFixed(2)}%`
+                          : "—"}
                     </td>
                     <td className="py-2.5 px-3 text-slate-600 font-mono text-[11px]">
-                      {b.unmet_pct_median !== undefined && b.unmet_pct_median !== null
+                      {allocationData
+                        ? "Single scenario"
+                        : b.unmet_pct_median !== undefined && b.unmet_pct_median !== null
                         ? `${b.unmet_pct_median}% / ${b.unmet_pct_p75}% / ${b.unmet_pct_p90}%`
                         : "—"}
                     </td>
                     <td className="py-2.5 px-3 text-slate-700 font-mono">
-                      {(b.cost_index || b.cost_index_mean).toLocaleString()}
+                      {(b.cost_index ?? b.cost_index_mean)?.toLocaleString() ?? "—"}
                     </td>
                     <td className="py-2.5 px-3 text-slate-600">
-                      {(b.route_km || b.route_km_mean).toLocaleString()} km
+                      {(b.route_km ?? b.route_km_mean)?.toLocaleString() ?? "—"} km
                     </td>
                     <td className="py-2.5 px-3 text-slate-800 font-bold">
-                      {((b.min_coverage || b.min_coverage_mean) * 100).toFixed(1)}%
+                      {b.min_coverage != null || b.min_coverage_mean != null
+                        ? `${((b.min_coverage ?? b.min_coverage_mean) * 100).toFixed(1)}%`
+                        : "—"}
                     </td>
                     <td className="py-2.5 px-3">
                       <span className="text-emerald-700 font-bold">

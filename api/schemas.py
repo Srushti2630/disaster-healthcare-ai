@@ -245,6 +245,16 @@ class AllocationRequest(BaseModel):
     epicentre: Optional[str] = "Pune"
     hazard: Optional[HazardType] = HazardType.FLOOD
     severity: Optional[float] = 1.0
+    reference_event_id: Optional[str] = Field(
+        default=None,
+        description="EM-DAT event ID used as a real historical affected-population reference"
+    )
+    affected_override: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=150000000.0,
+        description="Optional user-provided event affected-population scenario"
+    )
     planning_level: Optional[PlanningLevel] = PlanningLevel.P50
     stock_adjustment_pct: Optional[float] = 0.0
     safety_reserve_ratio: Optional[float] = Field(default=0.60, ge=0.0, le=1.0)
@@ -260,6 +270,16 @@ class TransferRow(BaseModel):
     priority: str
     confidence: float
 
+class HistoricalAllocationScenario(BaseModel):
+    event_id: str
+    year: int
+    hazard: str
+    subtype: str
+    affected_population: int
+    districts_affected: List[str]
+    scope: str
+    provenance: ProvenanceTag = ProvenanceTag.REAL
+
 class ConstraintCheck(BaseModel):
     safety_reserve_ratio: float
     perishables_150km_limit_passed: bool
@@ -271,6 +291,7 @@ class MethodComparisonSummary(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     method: str
     unmet_demand: float
+    unmet_demand_pct: Optional[float] = None
     cost_index: float
     unit_km: float
     route_km: float
@@ -288,6 +309,16 @@ class AllocationResponse(BaseModel):
     demand_reduction_pct: float
     min_coverage_before: float
     min_coverage_after: float
+    scenario_affected_population: int
+    scenario_affected_provenance: ProvenanceTag
+    affected_population_override: Optional[float] = None
+    affected_override_provenance: Optional[ProvenanceTag] = None
+    reference_event_id: Optional[str] = None
+    total_planned_demand: float
+    demand_provenance: ProvenanceTag
+    total_available_stock: float
+    stock_provenance: ProvenanceTag
+    district_allocation_provenance: ProvenanceTag
     transfers: List[TransferRow]
     constraint_checks: ConstraintCheck
     method_comparison: List[MethodComparisonSummary]
@@ -350,4 +381,3 @@ class AuditVerifyResponse(BaseModel):
     total_blocks_verified: int
     broken_block: Optional[Dict[str, Any]] = None
     message: str
-

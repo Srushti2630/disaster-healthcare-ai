@@ -10,6 +10,7 @@ from api.auth import require_role, rate_limit_simulate
 
 from api.schemas import (
     DistrictListResponse, MetricsResponse, BacktestResponse, BaselineResponse,
+    HistoricalAllocationScenario,
     ImpactPredictionRequest, ImpactPredictionResponse,
     LocalExplanationResponse, GlobalExplanationResponse,
     UpdateStockRequest, UserStockResponse,
@@ -20,7 +21,7 @@ from api.services import (
     get_districts_service, get_metrics_service, get_backtest_service, get_baselines_service,
     predict_impact_service, get_global_explanation_service, explain_prediction_service,
     save_user_stock_service, get_user_stock_service, reset_user_stock_service,
-    simulate_service, allocate_service, export_pdf_service
+    simulate_service, allocate_service, export_pdf_service, get_historical_allocation_scenarios
 )
 
 router = APIRouter()
@@ -80,6 +81,16 @@ async def get_backtest(request: Request):
 async def get_baselines(request: Request):
     """Retrieve 20-scenario optimization comparison across SCIP MIP and 4 heuristic baselines."""
     return get_baselines_service(request.app.state)
+
+@router.get(
+    "/api/allocation/scenarios",
+    response_model=List[HistoricalAllocationScenario],
+    summary="Get Maharashtra EM-DAT Reference Scenarios",
+    tags=["Allocation"]
+)
+async def get_allocation_scenarios():
+    """Return real EM-DAT affected totals for Maharashtra district or multi-district events."""
+    return get_historical_allocation_scenarios()
 
 @router.get("/api/baselines/pareto-plot", summary="Get Optimizer Pareto Sweep Plot Image", tags=["Evaluation"])
 async def get_pareto_plot():

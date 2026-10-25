@@ -9,6 +9,7 @@ import {
   UserStockResponse,
   SimulationResponse,
   AllocationResponse,
+  HistoricalAllocationScenario,
   TokenResponse,
   User,
   AuditEvent,
@@ -55,6 +56,7 @@ export const api = {
   getMetrics: () => request<MetricsResponse>("/api/metrics"),
   getBacktest: () => request<BacktestResponse>("/api/backtest"),
   getBaselines: () => request<BaselineResponse>("/api/baselines"),
+  getAllocationScenarios: () => request<HistoricalAllocationScenario[]>("/api/allocation/scenarios"),
 
   // Decision Support & Simulation
   predictImpact: (data: { hazard: string; magnitude?: number; month?: number; state?: string }) =>
@@ -88,6 +90,8 @@ export const api = {
     epicentre?: string;
     hazard?: string;
     severity?: number;
+    affected_override?: number;
+    reference_event_id?: string;
     planning_level?: "P50" | "P75" | "P90";
     safety_reserve_ratio?: number;
     stock_adjustment_pct?: number;
