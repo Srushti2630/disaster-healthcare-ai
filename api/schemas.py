@@ -1,6 +1,7 @@
 """Pydantic v2 schemas and models for Disaster Healthcare AI API."""
 from typing import List, Dict, Any, Optional, Literal
 from enum import Enum
+from datetime import date
 from pydantic import BaseModel, Field, field_validator, ConfigDict, AliasChoices
 
 class ProvenanceTag(str, Enum):
@@ -121,7 +122,23 @@ class ImpactPredictionRequest(BaseModel):
     hazard: HazardType = Field(default=HazardType.FLOOD, description="Disaster hazard category")
     magnitude: Optional[float] = Field(default=None, ge=0.0, le=1000.0, description="Hazard magnitude metric (e.g. Richter scale or wind speed)")
     month: Optional[int] = Field(default=7, ge=1, le=12, description="Month of event occurrence (1-12)")
-    state: Optional[str] = Field(default="Maharashtra", description="Target region or state name")
+    year: int = Field(default_factory=lambda: date.today().year, ge=1900, le=2100, description="Event year used by the impact model")
+    subtype: Optional[str] = Field(default=None, description="Optional EM-DAT disaster subtype; must match a category learned by the model")
+    scope: Literal["district", "multi-district", "national", "state"] = Field(
+        default="state",
+        description="Geographic scope of the event, using a category learned by the model"
+    )
+    state: Optional[str] = Field(
+        default="Maharashtra",
+        description="Requested state context only; the trained impact model has no state or district feature"
+    )
+
+    @field_validator("subtype")
+    @classmethod
+    def validate_subtype(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not value.strip():
+            raise ValueError("subtype must be a non-empty category or omitted")
+        return value.strip() if value is not None else None
 
 class ModelPredictionItem(BaseModel):
     model_name: str
@@ -139,7 +156,7 @@ class ImpactPredictionResponse(BaseModel):
     multiplicative_factor: float
     caveat: str
     provenance: ProvenanceTag = ProvenanceTag.ESTIMATED
-    model_architecture: Optional[str] = "Heterogeneous Voting Ensemble (Ridge + Random Forest + XGBoost)"
+    model_architecture: Optional[str] = "Ridge Regression (alpha=1.0)"
     ensemble_breakdown: Optional[List[ModelPredictionItem]] = None
 
 # -------------------------------------------------------------
@@ -188,7 +205,7 @@ class SimulationRequest(BaseModel):
     planning_level: PlanningLevel = Field(default=PlanningLevel.P50, description="Demand quantile planning level (P50, P75, or P90)")
     stock_adjustment_pct: float = Field(default=0.0, ge=-100.0, le=500.0, description="Percentage adjustment to current medical stocks")
     custom_stocks: Optional[Dict[str, Dict[str, float]]] = Field(default=None, description="Optional user-provided custom district stocks")
-    model_choice: Optional[str] = Field(default="ensemble", description="Model choice: 'ensemble', 'xgb', 'rf', 'ridge'")
+    model_choice: Optional[str] = Field(default="ridge", description="Model choice: 'ridge', 'xgb', or 'rf'")
 
 # -------------------------------------------------------------
 # CUSTOM STOCK MODELS

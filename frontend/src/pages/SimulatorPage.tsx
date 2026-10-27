@@ -35,7 +35,7 @@ export const SimulatorPage: React.FC = () => {
   const [planningLevel, setPlanningLevel] = useState<"P50" | "P75" | "P90">("P50");
   const [stockAdjustmentPct, setStockAdjustmentPct] = useState(0);
   const [affectedOverride, setAffectedOverride] = useState<string>("");
-  const [modelChoice, setModelChoice] = useState("ensemble");
+  const [modelChoice, setModelChoice] = useState("ridge");
   const [selectedMedicineFilter, setSelectedMedicineFilter] = useState("antibiotics");
   const [simulationResult, setSimulationResult] = useState<SimulationResponse | null>(null);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
@@ -195,7 +195,7 @@ export const SimulatorPage: React.FC = () => {
             <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center justify-between">
               <span>Prediction Model Architecture</span>
               <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                ⭐ Ensemble Powered
+                ⭐ Ridge Production Model (best measured holdout)
               </span>
             </label>
             <select
@@ -203,10 +203,9 @@ export const SimulatorPage: React.FC = () => {
               onChange={(e) => setModelChoice(e.target.value)}
               className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:bg-white"
             >
-              <option value="ensemble">🟢 Heterogeneous Voting Ensemble (Ridge + Random Forest + XGBoost) — Active Recommendation</option>
+              <option value="ridge">🟢 Ridge Regression (L2) — Active production model</option>
               <option value="xgb">🔵 XGBoost Regressor (Gradient Boosting Base Estimator)</option>
               <option value="rf">🟡 Random Forest Regressor (Bagging Base Estimator)</option>
-              <option value="ridge">⚪ Ridge Linear Regressor (L2 Baseline)</option>
             </select>
             <p className="text-[11px] text-slate-500 mt-1">
               Select which ML model calculates baseline disaster casualties for the 2,000 Monte-Carlo draws.
@@ -354,7 +353,7 @@ export const SimulatorPage: React.FC = () => {
                 {isDownloadingPdf ? "Downloading..." : "Official SITREP PDF"}
               </button>
               <span className="px-3 py-1 bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 rounded-lg text-xs font-semibold">
-                Architecture: {simulationResult.model_used || "Voting Ensemble"}
+                Model: {simulationResult.model_used || "Ridge Regression"}
               </span>
               <span className="px-3 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs font-semibold">
                 Quantile: {simulationResult.planning_level}
@@ -370,26 +369,26 @@ export const SimulatorPage: React.FC = () => {
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[11px] font-bold">
-                      ⭐ Ensemble Live Breakdown
+                      ⭐ Live Model Comparison
                     </span>
                     <h3 className="text-base font-bold text-slate-900">
                       Multi-Model Casualty Demand Comparison
                     </h3>
                   </div>
                   <p className="text-xs text-slate-500 mt-1">
-                    Direct comparison of casualty forecasts between individual base estimators vs. the Heterogeneous Voting Ensemble.
+                    Compare casualty forecasts from Ridge, Random Forest, and XGBoost for this scenario.
                   </p>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 {Object.entries(simulationResult.ensemble_comparison).map(([mName, count]) => {
-                  const isEnsemble = mName.includes("Ensemble");
+                  const isActive = mName === simulationResult.model_used;
                   return (
                     <div
                       key={mName}
                       className={`p-4 rounded-xl border transition-all ${
-                        isEnsemble
+                        isActive
                           ? "bg-blue-50/70 border-blue-300 ring-2 ring-blue-500/30"
                           : "bg-slate-50 border-slate-200"
                       }`}
@@ -398,17 +397,17 @@ export const SimulatorPage: React.FC = () => {
                         <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
                           {mName}
                         </span>
-                        {isEnsemble && (
+                        {isActive && (
                           <span className="px-1.5 py-0.5 bg-blue-600 text-white text-[10px] font-bold rounded">
                             ACTIVE
                           </span>
                         )}
                       </div>
-                      <p className={`text-xl font-extrabold mt-2 ${isEnsemble ? "text-blue-900" : "text-slate-800"}`}>
+                      <p className={`text-xl font-extrabold mt-2 ${isActive ? "text-blue-900" : "text-slate-800"}`}>
                         {count.toLocaleString()}
                       </p>
                       <p className="text-[10px] text-slate-500 mt-1">
-                        {isEnsemble ? "Blended Consensus (Lower Variance)" : "Individual Base Estimator"}
+                        {isActive ? "Selected model for this simulation" : "Comparison model"}
                       </p>
                     </div>
                   );
@@ -418,7 +417,7 @@ export const SimulatorPage: React.FC = () => {
               <div className="p-3 bg-slate-50 rounded-xl text-xs text-slate-600 border border-slate-200 flex items-start gap-2">
                 <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
                 <span>
-                  <strong>Review Presentation Talking Point:</strong> Single models suffer from blind spots: tree models (Random Forest, XGBoost) split sharply on few samples, while linear models (Ridge) can over-project. The <strong>Voting Ensemble</strong> fuses all three, providing a balanced, resilient consensus prediction for disaster healthcare planning.
+                  <strong>Review Presentation Talking Point:</strong> Ridge is the active point-prediction model because it achieved the strongest R² and Spearman scores in the reported time-split benchmark. The event sample is small, so this selection still needs independent confirmation on future events.
                 </span>
               </div>
             </div>

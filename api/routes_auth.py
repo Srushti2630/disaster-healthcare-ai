@@ -2,6 +2,7 @@
 from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
@@ -13,7 +14,7 @@ from api.schemas import (
 )
 from api.auth import (
     hash_password, verify_password, create_access_token,
-    get_current_user, require_role, rate_limit_login
+    get_current_user, require_role, rate_limit_login, security
 )
 from api.audit_ledger import record_decision, verify_chain
 
@@ -31,7 +32,8 @@ auth_router = APIRouter(prefix="/api", tags=["Auth & Governance"])
 async def register_user(
     body: UserRegisterRequest,
     request: Request,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security)
 ):
     """
     Register a new user account.
@@ -43,7 +45,17 @@ async def register_user(
     if total_users == 0:
         assigned_role = UserRole.ADMIN.value
     else:
-        # Allow self-registration for officer/coordinator roles
+        if not auth or not auth.credentials:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Administrator privileges are required to register additional users."
+            )
+        current_user = get_current_user(auth=auth, db=db)
+        if current_user.role != UserRole.ADMIN.value:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Administrator privileges are required to register additional users."
+            )
         assigned_role = body.role or UserRole.OFFICER.value
 
     # Check for existing email

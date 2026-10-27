@@ -81,12 +81,40 @@ async def lifespan(app: FastAPI):
         else:
             app.state.baselines_df = pd.DataFrame()
 
-        logger.info("Loaded reports: metrics.json, historical_backtest.csv, baseline_comparison.csv.")
+        baseline_summary_file = settings.REPORTS_DIR / "allocation_summary.json"
+        app.state.baseline_scenarios_evaluated = None
+        if baseline_summary_file.exists():
+            with open(baseline_summary_file, "r", encoding="utf-8") as f:
+                baseline_summary = json.load(f)
+            scenario_records = baseline_summary.get("scenario_demand_stock")
+            scenario_count = baseline_summary.get("total_scenarios")
+            if scenario_count is None and isinstance(scenario_records, list):
+                scenario_count = len(scenario_records)
+            if (
+                isinstance(scenario_count, int)
+                and not isinstance(scenario_count, bool)
+                and scenario_count > 0
+                and (
+                    not isinstance(scenario_records, list)
+                    or len(scenario_records) == scenario_count
+                )
+            ):
+                app.state.baseline_scenarios_evaluated = scenario_count
+            else:
+                logger.warning(
+                    "Baseline scenario count is missing or inconsistent in allocation_summary.json."
+                )
+
+        logger.info(
+            "Loaded reports: metrics.json, historical_backtest.csv, "
+            "baseline_comparison.csv, allocation_summary.json."
+        )
     except Exception as e:
         logger.error(f"Error loading reports: {e}")
         app.state.metrics_data = {}
         app.state.backtest_df = pd.DataFrame()
         app.state.baselines_df = pd.DataFrame()
+        app.state.baseline_scenarios_evaluated = None
 
     # 4. Load Models & Pipelines
     try:

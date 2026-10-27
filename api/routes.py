@@ -77,9 +77,9 @@ async def get_backtest(request: Request):
     """Retrieve Leave-One-Event-Out historical replay on real EM-DAT India disasters."""
     return get_backtest_service(request.app.state)
 
-@router.get("/api/baselines", response_model=BaselineResponse, summary="Get Optimizer 20-Scenario Baseline Comparison", tags=["Evaluation"])
+@router.get("/api/baselines", response_model=BaselineResponse, summary="Get Stratified Optimizer Baseline Comparison", tags=["Evaluation"])
 async def get_baselines(request: Request):
-    """Retrieve 20-scenario optimization comparison across SCIP MIP and 4 heuristic baselines."""
+    """Retrieve the completed stratified comparison across SCIP MIP and 4 heuristic baselines."""
     return get_baselines_service(request.app.state)
 
 @router.get(

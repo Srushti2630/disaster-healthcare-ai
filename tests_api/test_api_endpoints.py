@@ -1,7 +1,12 @@
 """Comprehensive unit & integration test suite for Disaster Healthcare AI FastAPI backend."""
 import pytest
+import pandas as pd
+import json
 from fastapi.testclient import TestClient
 from api.main import app
+from api.schemas import ImpactPredictionRequest
+from api.services import build_impact_input_frame
+from api.config import settings
 
 from api.database import init_db
 
@@ -95,7 +100,12 @@ def test_get_baselines_endpoint(client):
     res = client.get("/api/baselines")
     assert res.status_code == 200
     data = res.json()
-    assert data["scenarios_evaluated"] == 20
+    with open(settings.REPORTS_DIR / "allocation_summary.json", "r", encoding="utf-8") as f:
+        baseline_summary = json.load(f)
+    expected_scenarios = baseline_summary.get("total_scenarios")
+    if expected_scenarios is None:
+        expected_scenarios = len(baseline_summary.get("scenario_demand_stock", []))
+    assert data["scenarios_evaluated"] == expected_scenarios
     methods = [r["method"] for r in data["results"]]
     assert "OR-Tools SCIP" in methods
     assert "No Redistribution" in methods
@@ -106,6 +116,9 @@ def test_predict_impact_success(client):
         "hazard": "Flood",
         "magnitude": 50.0,
         "month": 7,
+        "year": 2024,
+        "subtype": "Riverine flood",
+        "scope": "multi-district",
         "state": "Maharashtra"
     }
     res = client.post("/api/predict-impact", json=payload)
@@ -116,6 +129,86 @@ def test_predict_impact_success(client):
     assert data["predicted_p90_affected"] >= data["predicted_median_affected"]
     assert "caveat" in data
     assert data["provenance"] == "ESTIMATED"
+    assert data["model_architecture"] == "Ridge Regression (alpha=1.0)"
+    active_models = [model for model in data["ensemble_breakdown"] if model["is_active"]]
+    assert len(active_models) == 1
+    assert active_models[0]["model_name"] == "Ridge Regression"
+
+def test_impact_input_matches_saved_model_features_and_missing_magnitude(client):
+    bundle = app.state.impact_bundle
+    req = ImpactPredictionRequest(
+        hazard="Flood",
+        magnitude=None,
+        year=2024,
+        month=2,
+        subtype="Riverine flood",
+        scope="multi-district",
+        state="Maharashtra"
+    )
+
+    features = build_impact_input_frame(bundle, req)
+
+    assert list(features.columns) == (
+        bundle["feature_cols_num"] + bundle["feature_cols_cat"]
+    )
+    assert features.loc[0, "disaster_type"] == "Flood"
+    assert features.loc[0, "disaster_subtype"] == "Riverine flood"
+    assert features.loc[0, "scope"] == "multi-district"
+    assert features.loc[0, "start_year"] == 2024
+    assert features.loc[0, "start_month"] == 2
+    assert features.loc[0, "decade"] == 2020
+    assert pd.isna(features.loc[0, "magnitude"])
+    assert "state" not in features.columns
+
+    transformed = bundle["preprocessor"].transform(features)
+    assert transformed.shape[1] == bundle["impact_model"].n_features_in_
+
+def test_impact_input_defaults_to_missing_subtype_and_valid_state_scope(client):
+    bundle = app.state.impact_bundle
+    req = ImpactPredictionRequest(hazard="Storm", year=2031)
+
+    features = build_impact_input_frame(bundle, req)
+
+    assert pd.isna(features.loc[0, "magnitude"])
+    assert features.loc[0, "disaster_subtype"] == "Unknown"
+    assert features.loc[0, "scope"] == "state"
+    assert features.loc[0, "start_year"] == 2031
+    assert features.loc[0, "decade"] == 2030
+    transformed = bundle["preprocessor"].transform(features)
+    feature_names = bundle["preprocessor"].get_feature_names_out()
+    subtype_columns = [
+        index for index, name in enumerate(feature_names)
+        if name.startswith("cat__disaster_subtype_")
+    ]
+    assert subtype_columns
+    assert all(transformed[0, index] == 0 for index in subtype_columns)
+
+def test_predict_impact_rejects_unsupported_model_categories(client):
+    invalid_scope = client.post(
+        "/api/predict-impact",
+        json={"hazard": "Flood", "scope": "single-state"}
+    )
+    assert invalid_scope.status_code == 422
+
+    invalid_subtype = client.post(
+        "/api/predict-impact",
+        json={"hazard": "Flood", "subtype": "Unseen flood subtype"}
+    )
+    assert invalid_subtype.status_code == 422
+    assert "not a category supported" in invalid_subtype.json()["message"]
+
+    invalid_hazard = client.post(
+        "/api/predict-impact",
+        json={"hazard": "Other"}
+    )
+    assert invalid_hazard.status_code == 422
+
+def test_predict_impact_rejects_invalid_year(client):
+    response = client.post(
+        "/api/predict-impact",
+        json={"hazard": "Flood", "year": 1800}
+    )
+    assert response.status_code == 422
 
 def test_predict_impact_validation_error(client):
     # Invalid month 15 (should fail ge=1, le=12 validation)
@@ -141,6 +234,8 @@ def test_simulate_success_and_capping(client):
     data = res.json()
     assert data["epicentre"] == "Pune"
     assert data["hazard"] == "Flood"
+    assert data["model_used"] == "Ridge Regression"
+    assert "Ridge Regression" in data["ensemble_comparison"]
     assert data["total_affected_simulated"] > 0
     assert len(data["results"]) == 35 * 5  # 35 districts * 5 medicines
     
@@ -236,11 +331,18 @@ def test_stock_role_enforcement_and_validation(client):
 
     # 2. Viewer role -> 403
     with TestClient(app) as viewer_client:
-        viewer_client.post("/api/auth/register", json={
+        admin_login = viewer_client.post("/api/auth/login", json={
+            "email": "test_suite_admin@mahadisaster.gov.in",
+            "password": "AdminPassword123!"
+        })
+        assert admin_login.status_code == 200
+        viewer_client.headers["Authorization"] = f"Bearer {admin_login.json()['access_token']}"
+        register_viewer = viewer_client.post("/api/auth/register", json={
             "email": "viewer_stock_test@mahadisaster.gov.in",
             "password": "ViewerPassword123!",
             "role": "viewer"
         })
+        assert register_viewer.status_code == 201
         login_res = viewer_client.post("/api/auth/login", json={
             "email": "viewer_stock_test@mahadisaster.gov.in",
             "password": "ViewerPassword123!"

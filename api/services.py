@@ -259,8 +259,14 @@ def get_backtest_service(app_state: Any) -> BacktestResponse:
     )
 
 def get_baselines_service(app_state: Any) -> BaselineResponse:
-    """Retrieve 20-scenario optimization benchmark comparison table."""
+    """Retrieve stratified optimization benchmark results and evaluated scenario count."""
     base_df = getattr(app_state, "baselines_df", pd.DataFrame())
+    scenarios_evaluated = getattr(app_state, "baseline_scenarios_evaluated", None)
+    if not isinstance(scenarios_evaluated, int) or scenarios_evaluated <= 0:
+        raise HTTPException(
+            status_code=503,
+            detail="Baseline scenario count is unavailable from the completed benchmark summary."
+        )
 
     def parse_rows(df: pd.DataFrame) -> List[BaselineComparisonRow]:
         res = []
@@ -306,11 +312,75 @@ def get_baselines_service(app_state: Any) -> BaselineResponse:
 
     return BaselineResponse(
         evaluation_formula="Cost Index = unit_km * 15.0 + active_routes * 500.0",
-        scenarios_evaluated=len(base_df),
+        scenarios_evaluated=scenarios_evaluated,
         results=rows,
         restricted_results=restricted_rows,
         pareto_plot_url="/api/baselines/pareto-plot"
     )
+
+
+def build_impact_input_frame(bundle: Dict[str, Any], req: ImpactPredictionRequest) -> pd.DataFrame:
+    """Build and validate live feature rows against the saved preprocessing artifact."""
+    preprocessor = bundle.get("preprocessor")
+    feature_cols_num = bundle.get("feature_cols_num")
+    feature_cols_cat = bundle.get("feature_cols_cat")
+    if preprocessor is None or not feature_cols_num or not feature_cols_cat:
+        raise HTTPException(status_code=503, detail="Impact model preprocessing metadata is unavailable.")
+
+    feature_columns = list(feature_cols_num) + list(feature_cols_cat)
+    if len(feature_columns) != len(set(feature_columns)):
+        raise HTTPException(status_code=503, detail="Impact model contains duplicate feature names.")
+
+    fitted_columns = getattr(preprocessor, "feature_names_in_", None)
+    if fitted_columns is not None and list(fitted_columns) != feature_columns:
+        raise HTTPException(
+            status_code=503,
+            detail="Impact model feature metadata does not match its fitted preprocessing pipeline."
+        )
+
+    feature_values: Dict[str, Any] = {
+        "magnitude": np.nan if req.magnitude is None else float(req.magnitude),
+        "start_year": req.year,
+        "start_month": req.month if req.month is not None else 7,
+        "decade": (req.year // 10) * 10,
+        "disaster_type": req.hazard.value,
+        "disaster_subtype": "Unknown" if req.subtype is None else req.subtype,
+        "scope": req.scope,
+    }
+    unsupported_features = set(feature_columns).difference(feature_values)
+    if unsupported_features:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "The loaded impact model requires unsupported live features: "
+                f"{', '.join(sorted(unsupported_features))}."
+            )
+        )
+
+    categorical_transformer = getattr(preprocessor, "named_transformers_", {}).get("cat")
+    categories = getattr(categorical_transformer, "categories_", None)
+    categorical_columns = getattr(categorical_transformer, "feature_names_in_", None)
+    if categories is None or categorical_columns is None:
+        raise HTTPException(
+            status_code=503,
+            detail="The loaded impact model does not expose its fitted categorical vocabulary."
+        )
+    category_map = {
+        column: set(category_values.tolist())
+        for column, category_values in zip(categorical_columns, categories)
+    }
+
+    for column in ("disaster_type", "disaster_subtype", "scope"):
+        value = feature_values[column]
+        if pd.isna(value) or (column == "disaster_subtype" and value == "Unknown"):
+            continue
+        if column not in category_map or value not in category_map[column]:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unsupported {column} '{value}'. It is not a category supported by the loaded impact model."
+            )
+
+    return pd.DataFrame([{column: feature_values[column] for column in feature_columns}])
 
 
 def predict_impact_service(app_state: Any, req: ImpactPredictionRequest) -> ImpactPredictionResponse:
@@ -323,21 +393,23 @@ def predict_impact_service(app_state: Any, req: ImpactPredictionRequest) -> Impa
     model = bundle["impact_model"]
     cqr = bundle["cqr_model"]
 
-    # Build input features
-    input_dict = {
-        "magnitude": [req.magnitude if req.magnitude is not None else 0.0],
-        "start_year": [2026],
-        "start_month": [req.month if req.month is not None else 7],
-        "decade": [2020],
-        "disaster_type": [req.hazard.value],
-        "disaster_subtype": ["Unknown"],
-        "scope": ["single-state"]
-    }
-    input_df = pd.DataFrame(input_dict)
+    input_df = build_impact_input_frame(bundle, req)
 
     try:
         X_trans = preprocessor.transform(input_df)
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Impact model preprocessing failed for the validated feature schema: {e}"
+        ) from e
+
+    try:
         pred_log = float(model.predict(X_trans)[0])
+        point_calibrator = bundle.get("point_calibrator", {})
+        pred_log = (
+            float(point_calibrator.get("slope", 1.0)) * pred_log
+            + float(point_calibrator.get("intercept", 0.0))
+        )
         pred_median = int(np.expm1(np.clip(pred_log, 0, 16)))
 
         lower_log, upper_log = cqr.predict_interval(X_trans)
@@ -348,7 +420,31 @@ def predict_impact_service(app_state: Any, req: ImpactPredictionRequest) -> Impa
         mult_factor = float(np.exp(upper_log[0] - lower_log[0]))
 
         ensemble_items = []
-        if hasattr(model, "named_estimators_"):
+        comparison_models = bundle.get("comparison_models", {})
+        model_labels = {
+            "ridge": ("Ridge Regression", "L2 Regularized Linear"),
+            "rf": ("Random Forest Regressor", "Bagging Ensemble"),
+            "xgb": ("XGBoost Regressor", "Gradient Boosting"),
+        }
+        if comparison_models:
+            for key, (name, architecture) in model_labels.items():
+                estimator = comparison_models.get(key)
+                if estimator is not None:
+                    estimate_log = float(estimator.predict(X_trans)[0])
+                    if key == "ridge":
+                        point_calibrator = bundle.get("point_calibrator", {})
+                        estimate_log = (
+                            float(point_calibrator.get("slope", 1.0)) * estimate_log
+                            + float(point_calibrator.get("intercept", 0.0))
+                        )
+                    estimate_affected = int(np.expm1(np.clip(estimate_log, 0, 16)))
+                    ensemble_items.append(ModelPredictionItem(
+                        model_name=name,
+                        predicted_affected=estimate_affected,
+                        architecture=architecture,
+                        is_active=estimator is model
+                    ))
+        elif hasattr(model, "named_estimators_"):
             ensemble_items.append(ModelPredictionItem(
                 model_name="Voting Ensemble (Ridge + RF + XGBoost)",
                 predicted_affected=pred_median,
@@ -382,13 +478,16 @@ def predict_impact_service(app_state: Any, req: ImpactPredictionRequest) -> Impa
             multiplicative_factor=round(mult_factor, 2),
             caveat=FIXED_IMPACT_CAVEAT,
             provenance=ProvenanceTag.ESTIMATED,
-            model_architecture="Heterogeneous Voting Ensemble (Ridge + Random Forest + XGBoost)",
+            model_architecture=bundle.get(
+                "production_model_name",
+                "Heterogeneous Voting Ensemble (Ridge + Random Forest + XGBoost)"
+            ),
             ensemble_breakdown=ensemble_items
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
 
-def generate_plain_english_sentence(clean_name: str, raw_f: str, val: float, hazard_str: str, mag_val: float, month_val: int) -> str:
+def generate_plain_english_sentence(clean_name: str, raw_f: str, val: float, hazard_str: str, mag_val: Optional[float], month_val: int) -> str:
     sign_str = f"+{val:.2f}" if val >= 0 else f"{val:.2f}"
     if "hazard" in clean_name.lower() or "disaster" in clean_name.lower():
         if hazard_str == "Flood":
@@ -400,10 +499,12 @@ def generate_plain_english_sentence(clean_name: str, raw_f: str, val: float, haz
         else:
             return f"{clean_name} hazard adds {sign_str} log units to the baseline expected casualty scale."
     elif "magnitude" in clean_name.lower():
+        if mag_val is None:
+            return f"No magnitude was supplied; the model applies its fitted missing-value imputation ({sign_str} log units)."
         if mag_val > 0:
             return f"Recorded event magnitude ({mag_val}) shifts expected casualties by {sign_str} log units."
         else:
-            return f"Default or zero physical magnitude anchors demand conservatively with a {sign_str} log contribution."
+            return f"Recorded zero magnitude contributes {sign_str} log units."
     elif "month" in clean_name.lower():
         if month_val in [6, 7, 8, 9]:
             return f"Occurrence during peak monsoon season (month {month_val}) contributes {sign_str} log units."
@@ -499,21 +600,18 @@ def explain_prediction_service(app_state: Any, req: ImpactPredictionRequest) -> 
             logger.warning(f"Could not fit fallback Ridge model: {e}")
 
     hazard_str = req.hazard.value if hasattr(req.hazard, "value") else str(req.hazard)
-    mag_val = req.magnitude if req.magnitude is not None else 0.0
+    mag_val = req.magnitude
     month_val = req.month if req.month is not None else 7
 
-    input_dict = {
-        "magnitude": [mag_val],
-        "start_year": [2026],
-        "start_month": [month_val],
-        "decade": [2020],
-        "disaster_type": [hazard_str],
-        "disaster_subtype": ["Unknown"],
-        "scope": ["single-state"]
-    }
-    input_df = pd.DataFrame(input_dict)
+    input_df = build_impact_input_frame(bundle, req)
 
-    X_trans = preprocessor.transform(input_df) if preprocessor is not None else np.zeros((1, 10))
+    try:
+        X_trans = preprocessor.transform(input_df) if preprocessor is not None else np.zeros((1, 10))
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Impact model preprocessing failed for the validated feature schema: {e}"
+        ) from e
     feature_names = list(preprocessor.get_feature_names_out()) if hasattr(preprocessor, "get_feature_names_out") else [f"feature_{i}" for i in range(X_trans.shape[1])]
 
     contributions_dict: Dict[str, float] = {}
@@ -554,6 +652,17 @@ def explain_prediction_service(app_state: Any, req: ImpactPredictionRequest) -> 
             "num__decade": 0.12,
             "num__start_year": 0.08
         }
+
+    if ridge_model is not None and hasattr(ridge_model, "coef_"):
+        point_calibrator = bundle.get("point_calibrator", {})
+        calibration_slope = float(point_calibrator.get("slope", 1.0))
+        calibration_intercept = float(point_calibrator.get("intercept", 0.0))
+        contributions_dict = {
+            feature: contribution * calibration_slope
+            for feature, contribution in contributions_dict.items()
+        }
+        base_val = calibration_slope * base_val + calibration_intercept
+        pred_log = calibration_slope * pred_log + calibration_intercept
 
     all_contribs: List[FeatureContribution] = []
     for raw_f, val in contributions_dict.items():
@@ -720,28 +829,58 @@ def simulate_service(
 
     bundle = getattr(app_state, "impact_bundle", None)
     ensemble_comp = {}
-    model_name_used = "Voting Ensemble (Ridge + Random Forest + XGBoost)"
+    model_name_used = (
+        bundle.get("production_model_name", "Voting Ensemble (Ridge + Random Forest + XGBoost)")
+        if bundle else "Voting Ensemble (Ridge + Random Forest + XGBoost)"
+    )
 
     if bundle and "impact_model" in bundle and "preprocessor" in bundle:
         main_model = bundle["impact_model"]
         prep = bundle["preprocessor"]
-        input_df = pd.DataFrame([{
-            "magnitude": 0.0,
-            "start_year": 2026,
-            "start_month": 7,
-            "decade": 2020,
-            "disaster_type": req.hazard.value,
-            "disaster_subtype": "Unknown",
-            "scope": "single-state"
-        }])
+        input_df = build_impact_input_frame(
+            bundle,
+            ImpactPredictionRequest(hazard=req.hazard)
+        )
         X_trans = prep.transform(input_df)
 
         ens_pred_log = float(main_model.predict(X_trans)[0])
+        point_calibrator = bundle.get("point_calibrator", {})
+        ens_pred_log = (
+            float(point_calibrator.get("slope", 1.0)) * ens_pred_log
+            + float(point_calibrator.get("intercept", 0.0))
+        )
         ens_aff = int(np.expm1(np.clip(ens_pred_log, 0, 16)) * req.severity)
-        ensemble_comp["Voting Ensemble"] = ens_aff
+        comparison_models = bundle.get("comparison_models", {})
+        production_label = bundle.get("production_model_name", "Voting Ensemble")
         chosen_pred = ens_aff
 
-        if hasattr(main_model, "named_estimators_"):
+        if comparison_models:
+            labels = {
+                "xgb": "XGBoost",
+                "rf": "Random Forest",
+                "ridge": "Ridge Regression",
+            }
+            selected_key = getattr(req, "model_choice", None)
+            for key, label in labels.items():
+                estimator = comparison_models.get(key)
+                if estimator is None:
+                    continue
+                pred_log = float(estimator.predict(X_trans)[0])
+                if key == "ridge":
+                    pred_log = (
+                        float(point_calibrator.get("slope", 1.0)) * pred_log
+                        + float(point_calibrator.get("intercept", 0.0))
+                    )
+                affected = int(np.expm1(np.clip(pred_log, 0, 16)) * req.severity)
+                ensemble_comp[label] = affected
+                if key == selected_key:
+                    chosen_pred = affected
+                    model_name_used = label
+            if not ensemble_comp:
+                ensemble_comp[production_label] = ens_aff
+        else:
+            ensemble_comp[production_label] = ens_aff
+        if not comparison_models and hasattr(main_model, "named_estimators_"):
             for k, lbl in [("xgb", "XGBoost"), ("rf", "Random Forest"), ("ridge", "Ridge")]:
                 if k in main_model.named_estimators_:
                     est = main_model.named_estimators_[k]

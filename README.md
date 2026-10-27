@@ -58,7 +58,7 @@ Disaster healthcare logistics during extreme natural hazards face severe spatial
 
 ### Key Capabilities
 - **Strict Data Provenance**: Every metric in the UI and API is explicitly badged as `REAL`, `ESTIMATED`, or `ASSUMED` according to `data/provenance.yaml`.
-- **Honest Statistical Bounds**: Impact prediction utilizes Conformalized Quantile Regression (CQR 90%) on CRED EM-DAT India historical events (1900–2026). Discloses that while the model ranks events reasonably well (Spearman $\rho \approx 0.52$), extreme tail events can be underestimated by orders of magnitude (historical backtest actual/predicted ratios range from 7.7x to 1024.6x with a median ratio of 68.8x; CQR interval widths span 5.58 to 6.46 orders of magnitude with a median of 6.25 orders of magnitude).
+- **Honest Statistical Bounds**: Ridge Regression is the active point-prediction model with positive-slope affine calibration fitted on 2013–2015 validation predictions. On the unchanged 2019+ test set ($N=78$), calibrated test $R^2=0.318$ and Spearman $\rho=0.566$; uncalibrated Ridge scored $R^2=0.289$ and the same Spearman. CQR intervals use a separate 2016–2018 calibration period. Extreme tail events can be underestimated by orders of magnitude; the five-event historical backtest remains a warning about large event error. These small-sample scores require confirmation on future events.
 - **Physical Population Invariants**: Simulated casualties are capped at resident district population ($\min(\text{affected}, \text{population})$), preventing unrealistic synthetic spikes.
 - **Multi-Objective Network Optimization**: Solves inter-district medical transfers via Google OR-Tools SCIP Mixed-Integer Programming under 5 hard safety constraints (60% source reserve, high-risk export bans, 150 km blood transit limits, integer packs, non-negativity).
 - **Surrogate Classifier Validation**: The Random Forest surrogate classifier measures **fidelity to the Monte-Carlo surge simulator** (evaluated under scenario-based splitting across balanced risk regimes with Low, Medium, and High each $\ge 15\%$, reporting balanced accuracy, macro-F1, per-class precision/recall/F1, and multiclass ECE with per-class reliability diagrams, compared against a majority-class baseline), NOT accuracy against unobserved real-world hospital shortages.
@@ -90,12 +90,16 @@ Disaster healthcare logistics during extreme natural hazards face severe spatial
 | Model | Test MAE (log) | Test $R^2$ (95% CI) | Test Spearman $\rho$ (95% CI) | Order-of-Magnitude Acc ($\le 0.5 \text{ dex}$) |
 |---|---|---|---|---|
 | **Median Baseline** | 3.5717 | -0.0952 | 0.0000 | 19.2% |
-| **Ridge Regression** | **2.8812** | **0.2780** ([0.0787, 0.4331]) | **0.5199** ([0.3657, 0.6472]) | 20.5% |
-| **XGBoost Regressor** | 3.0908 | 0.1403 | 0.4454 | 24.4% |
-| **Random Forest** | 3.3204 | -0.0174 | 0.3078 | 23.1% |
+| **Ridge (validation-calibrated, active)** | **2.8117** | **0.3180** ([0.1671, 0.4359]) | **0.5662** ([0.4214, 0.6819]) | 19.2% |
+| Ridge (raw reference) | 2.8834 | 0.2890 | 0.5662 | 19.2% |
+| **XGBoost Regressor** | 3.2257 | 0.0786 | 0.3856 | 20.5% |
+| **Random Forest** | 3.2357 | 0.0263 | 0.3292 | 21.8% |
 
-- **CQR Coverage**: Empirical coverage on held-out test data is **94.9%** for nominal 90% target (conservative intervals).
-- **Historical Backtesting**: Leave-One-Event-Out validation by `DisNo.` across benchmark disasters (`2005-0409-IND`, `2005-0541-IND`, `2001-0033-IND`, `1993-0074-IND`, `2019-0331-IND`). Actual/predicted casualty ratios range from 7.7x to 1024.6x (median 68.8x). Log prediction interval widths span 5.58 to 6.46 orders of magnitude (median 6.25 orders of magnitude).
+- **Voting Ensemble (benchmark only)**: MAE 3.0365, R² 0.1870, Spearman ρ 0.4910; it is no longer the production point predictor.
+- **Calibration protocol**: A positive-slope linear map is fit on Ridge predictions from 2013–2015; CQR uses a separate 2016–2018 calibration period. This raises test R² from 0.2890 to 0.3180 while preserving event ranking (Spearman 0.5662). Calibration does not add a new predictor and its validation gain may not persist on future events.
+- **Training-time preprocessing**: Numeric medians and scaling are fit using the chronological training partition only; missingness indicators are included. No held-out feature statistics are used during preprocessing.
+- **CQR Coverage**: The latest saved run reports empirical coverage of **93.6%** on the held-out sample for a nominal 90% target (95% bootstrap CI: 88.5–98.7%). The interval calibration period is 2016–2018; this small-sample estimate does not guarantee future coverage. Median interval multiplicative factor is about **1.18 million×**.
+- **Historical Backtesting**: Leave-One-Event-Out validation by `DisNo.` across benchmark disasters (`2005-0409-IND`, `2005-0541-IND`, `2001-0033-IND`, `1993-0074-IND`, `2019-0331-IND`). Actual/predicted casualty ratios range from about 8.4x to 655.6x (median 84.5x). Log prediction interval widths span 5.55 to 6.49 orders of magnitude (median 6.33 orders of magnitude).
 
 ### B. Multi-Objective Optimization Benchmark (Stratified Evaluation across Empirical EM-DAT Strata)
 
@@ -249,8 +253,8 @@ The application configures authentication secrets and seed users via environment
 | Dimension | Legacy Synthetic Prototype | Current Verified Framework |
 |---|---|---|
 | **Data Layer** | Synthetic random data arrays | Real CRED EM-DAT (1900–2026), WorldPop 2020 1km grid, and National Health Portal |
-| **Model Performance** | Synthetic $R^2 \approx 0.88–0.99$ (circular generator recovery) | Real Ridge $R^2 = 0.2780$, MAE $= 2.8812$ (log-scale), Spearman $\rho = 0.5199$ on test set ($N=78$) |
-| **Uncertainty Bounds** | Narrow synthetic point predictions | CQR 90% conformal intervals (94.9% test coverage) with documented 6.25 order-of-magnitude log width |
+| **Model Performance** | Synthetic $R^2 \approx 0.88–0.99$ (circular generator recovery) | Real calibrated Ridge $R^2 = 0.3180$, MAE $= 2.8117$ (log-scale), Spearman $\rho = 0.5662$ on test set ($N=78$) |
+| **Uncertainty Bounds** | Narrow synthetic point predictions | CQR 90% conformal intervals (93.6% test coverage; 95% CI 88.5–98.7%) with median interval factor 1,184,849x |
 | **Resource Allocation** | Claimed OR-Tools was "lowest cost overall" | Verified OR-Tools SCIP achieves lowest unmet demand (2.09% mean) and lowest cost index among active greedy heuristics (3.41B Cost Index units) |
 | **Surrogate Validation** | Claimed real shortage prediction | Explicitly badged as fidelity to Monte-Carlo surge simulator under scenario-based splitting across balanced risk regimes ($\ge 15\%$ per class), evaluated on balanced accuracy, macro-F1, multiclass ECE with reliability curves, and majority baseline |
 
