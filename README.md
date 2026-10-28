@@ -1,6 +1,6 @@
-# Disaster Healthcare AI: Demand Prediction & Resource Allocation
+# Disaster Healthcare AI: Impact Prioritization & Resource Allocation
 
-> **An Explainable and Uncertainty-Aware Full-Stack AI Framework for Disaster Healthcare Demand Prediction and Multi-Objective Resource Allocation**  
+> **A demonstration-oriented decision-support prototype for event-impact prioritization, simulated healthcare demand, and resource allocation. It is not a validated district-level healthcare-demand predictor or production-ready system.**
 > *Maharashtra 35 Districts*¹ | React 18 & TypeScript | FastAPI & Python 3.13 | Google OR-Tools SCIP | Conformal Quantile Regression | SHA-256 Audit Ledger | Docker
 
 ---
@@ -8,61 +8,76 @@
 ## 1. System Architecture
 
 ```mermaid
-flowchart TD
-    subgraph Client [Frontend Layer - React 18 + TypeScript + Vite]
-        UI1["Geospatial Overview (Leaflet GeoJSON Choropleth)"]
-        UI2["Surge Simulator (Population Capped Monte-Carlo)"]
-        UI3["MIP Resource Allocation (OR-Tools SCIP Plan)"]
-        UI4["Governance Ledger (SHA-256 Cryptographic Chain)"]
-        UI5["Historical Backtest & Scientific Limitations"]
+flowchart LR
+    subgraph Client ["React 18 + TypeScript + Vite"]
+        OVERVIEW["Overview: district map and KPIs"]
+        SIM_UI["Simulator"]
+        ALLOC_UI["Allocation"]
+        EVAL_UI["Backtest and limitations"]
+        GOV_UI["Login and governance ledger"]
     end
 
-    subgraph Gateway [Reverse Proxy & Web Gateway]
-        NGINX["Nginx Web Server / Reverse Proxy (:80)"]
+    subgraph Gateway ["Docker frontend container"]
+        NGINX["Nginx :80<br/>serves SPA; proxies /api/* and API docs"]
     end
 
-    subgraph API [Backend Layer - FastAPI + Python 3.13]
-        MW["Middleware (Request-ID, Latency Timer, CORS)"]
-        AUTH["Auth & RBAC (JWT HS256, bcrypt, Rate Limiter)"]
-        ROUTES["REST Endpoints (/api/predict-impact, /simulate, /allocate, /audit)"]
+    subgraph API ["FastAPI :8000"]
+        MW["CORS + Request-ID / latency middleware"]
+        AUTH["JWT HS256 + bcrypt<br/>RBAC; in-memory limits on login and simulate"]
+        ROUTES["REST routes: data, impact, simulation,<br/>allocation, auth, inventory, audit, reports"]
     end
 
-    subgraph Engine [Analytical Core & Operational Research]
-        IMPACT["Ridge + Conformalized Quantile Regression (CQR 90%)"]
-        MC["Monte-Carlo Surge Engine (WHO IEHK / Sphere 2,000 Draws)"]
-        SURROGATE["RF Surrogate Classifier (Scenario Split, Multiclass ECE, Balanced Classes)"]
-        ORTOOLS["Google OR-Tools SCIP Solver (35 Districts, 5 Constraints)"]
+    subgraph Engine ["Decision-support computation"]
+        IMPACT["Impact endpoint<br/>Ridge point estimate + CQR interval"]
+        INPUTS["Scenario input<br/>model estimate, EM-DAT event, or user override"]
+        ALLOCATION["District event-total allocation<br/>population x epicentre-distance decay (ASSUMED); population-capped"]
+        MC["2,000-draw Monte Carlo<br/>demand, shortage probability and risk"]
+        DEMAND["Demand parameters: ASSUMED<br/>baseline stocks: ESTIMATED"]
+        ORTOOLS["OR-Tools SCIP MIP<br/>transfers and constraint checks"]
+        SURROGATE["Random Forest surrogate<br/>offline simulator-fidelity evaluation;<br/>not used for live shortage predictions"]
     end
 
-    subgraph Storage [Data & Persistence Layer]
-        SQLITE["SQLite Database (Users, Simulations, Audit Events)"]
-        PROV["Data Registry (data/provenance.yaml - REAL / ESTIMATED / ASSUMED)"]
-        MODELS["Serialized Model Weights & Calibration Bounds (models/)"]
+    subgraph Storage ["Runtime data and persistence"]
+        SQLITE["SQLAlchemy database<br/>SQLite default: users, custom stocks, audit events"]
+        DATA["Processed district/event data + boundaries"]
+        PROV["data/provenance.yaml<br/>reference registry; tags are assigned in code"]
+        MODELS["models/ joblib artifacts<br/>impact pipeline/CQR; surrogate classifier"]
+        REPORTS["reports/ evaluation and backtest files"]
     end
 
-    UI1 & UI2 & UI3 & UI4 & UI5 --> NGINX
-    NGINX --> MW
-    MW --> AUTH
-    AUTH --> ROUTES
-    ROUTES --> IMPACT & MC & SURROGATE & ORTOOLS
-    ROUTES --> SQLITE
-    IMPACT & MC & ORTOOLS --> PROV
-    IMPACT --> MODELS
+    OVERVIEW & SIM_UI & ALLOC_UI & EVAL_UI & GOV_UI --> NGINX
+    NGINX -->|/api/* and docs| MW
+    MW --> ROUTES
+    ROUTES -. protected endpoints .-> AUTH
+    ROUTES -->|/api/predict-impact| IMPACT
+    ROUTES -->|/api/simulate or /api/allocate| INPUTS
+    IMPACT --> INPUTS
+    INPUTS --> ALLOCATION --> MC
+    DEMAND --> MC
+    MC -->|selected demand, stocks, risk| ORTOOLS
+    ROUTES -->|auth, custom stocks, audit writes| SQLITE
+    SURROGATE -. fidelity metrics only .-> ROUTES
+    DATA --> ROUTES
+    MODELS --> IMPACT
+    MODELS --> SURROGATE
+    REPORTS --> ROUTES
 ```
+
+In local development, Vite serves the frontend on port 5173 and the API is called at port 8000; Nginx is used by the Docker frontend. Docker Compose publishes Nginx on host ports 80 and 5173 and FastAPI on 8000. `app.py` remains a separate Streamlit fallback and is not part of this React/Nginx request path. The surrogate artifact supports reported fidelity metrics; live shortage risks are computed by the Monte-Carlo simulation.
 
 ---
 
 ## 2. Executive Overview
 
-Disaster healthcare logistics during extreme natural hazards face severe spatial imbalances, sudden demand spikes, and opaque decision-making. This project delivers an **end-to-end production-style prototype and decision-support system** for disaster healthcare planning across Maharashtra's administrative districts.
+Disaster healthcare logistics during extreme natural hazards face severe spatial imbalances, sudden demand spikes, and opaque decision-making. This project is a **demonstration-oriented full-stack prototype** for exploring event-impact estimates, simulated medicine demand, and district-to-district resource allocation across Maharashtra. The impact model estimates an event's recorded total affected; it does not directly predict hospital demand. Mapping event totals to districts, demand rates, and baseline stocks involve assumptions or derived estimates, and the system has not been validated for operational or clinical use.
 
 ### Key Capabilities
-- **Strict Data Provenance**: Every metric in the UI and API is explicitly badged as `REAL`, `ESTIMATED`, or `ASSUMED` according to `data/provenance.yaml`.
-- **Honest Statistical Bounds**: Ridge Regression is the active point-prediction model with positive-slope affine calibration fitted on 2013–2015 validation predictions. On the unchanged 2019+ test set ($N=78$), calibrated test $R^2=0.318$ and Spearman $\rho=0.566$; uncalibrated Ridge scored $R^2=0.289$ and the same Spearman. CQR intervals use a separate 2016–2018 calibration period. Extreme tail events can be underestimated by orders of magnitude; the five-event historical backtest remains a warning about large event error. These small-sample scores require confirmation on future events.
-- **Physical Population Invariants**: Simulated casualties are capped at resident district population ($\min(\text{affected}, \text{population})$), preventing unrealistic synthetic spikes.
+- **Provenance-aware outputs**: Some API fields carry provenance tags and the UI has a provenance-badge component, but this is not a universal guarantee for every metric returned or displayed. The API also emits `ESTIMATED_SIMULATION` and `USER-PROVIDED`, which are outside the three tags in `data/provenance.yaml` and need alignment before claiming a strict three-tag policy. The YAML is a reference file; tags are assigned in code and are not dynamically loaded from it. Event-total district allocation uses population and epicentre-distance decay (`ASSUMED`), demand parameters are `ASSUMED`, and district bed capacity and simulated demand are estimates.
+- **Impact estimation, not demand prediction**: The active saved impact pipeline returns an estimated total-affected point estimate and CQR interval. Weather features are excluded from impact-model training. Very large events can be underestimated by orders of magnitude.
+- **Population cap**: Simulated district affected totals are capped at each district's resident population.
 - **Multi-Objective Network Optimization**: Solves inter-district medical transfers via Google OR-Tools SCIP Mixed-Integer Programming under 5 hard safety constraints (60% source reserve, high-risk export bans, 150 km blood transit limits, integer packs, non-negativity).
 - **Surrogate Classifier Validation**: The Random Forest surrogate classifier measures **fidelity to the Monte-Carlo surge simulator** (evaluated under scenario-based splitting across balanced risk regimes with Low, Medium, and High each $\ge 15\%$, reporting balanced accuracy, macro-F1, per-class precision/recall/F1, and multiclass ECE with per-class reliability diagrams, compared against a majority-class baseline), NOT accuracy against unobserved real-world hospital shortages.
-- **Cryptographic Audit Governance**: Human-in-the-loop review actions are sealed in a SHA-256 hash-chained ledger. An automated safety interlock blocks approval if scenario prediction confidence is below 0.60 (**HTTP 409 Conflict**).
+- **Cryptographic audit governance**: Human review actions are sealed in a SHA-256 hash-chained ledger. Approval below the configured confidence threshold (0.60 by default) is blocked with HTTP 409.
 
 ---
 
@@ -71,10 +86,10 @@ Disaster healthcare logistics during extreme natural hazards face severe spatial
 | Asset / Dataset | Provenance Tag | Source / Methodology | Records & Notes |
 |---|---|---|---|
 | **EM-DAT Disaster Catalogue** | `REAL` | CRED EM-DAT International Disaster Database ([public.emdat.be](https://public.emdat.be/)) | 810 India disaster events spanning 1900–2026 (512 with targets); casualty figures never imputed. |
-| **WorldPop Population Raster** | `REAL` | WorldPop 2020 1km / 3 arc-sec Constrained Grid ([worldpop.org](https://www.worldpop.org/)) | Raw raster zonal sum at 0.00083333° resolution (EPSG:4326): 131,936,179 vs 124.5M projection (5.97% gap documented as sanity check). |
-| **National Hospital Directory** | `REAL` | Open Government Data Portal India ([data.gov.in](https://data.gov.in/)) | 4,767 Maharashtra health facilities classified by public/private mix. |
-| **State ICU Beds Audit** | `ASSUMED` citation | National Health Profile / Kapoor et al. (2020) (*citation unverified from local raw files*) | 11,587 total state ICU beds (2,572 public / 9,015 private). |
-| **District Hospital Bed Capacity** | `ESTIMATED` | State Bed Anchor + Facility Count Weighting | Allocated from 144,983 state total hospital bed anchor (`api/services.py`) across 35 districts¹. |
+| **WorldPop Population Raster** | `REAL` | WorldPop 2020 Constrained Population Grid ([worldpop.org](https://www.worldpop.org/)) | The local GeoTIFF is EPSG:4326 at 0.00083333° (3 arc-seconds, about 100m pixels), not 1km. The current working-tree district zonal sum is 131,936,180 vs the 124.5M projection (5.97% gap); the committed CSV sums to 131,936,179. `data/README.md` and `data/provenance.yaml` still label the raster 1km; reconcile those descriptions. |
+| **National Hospital Directory** | `REAL` | Open Government Data Portal India ([data.gov.in](https://data.gov.in/)) | 4,767 Maharashtra facilities in the processed directory. `data/provenance.yaml` currently says 4,807; reconcile this metadata discrepancy before submission. |
+| **State ICU Beds Audit** | `REAL` (source attribution unverified) | Local statewise ICU-bed file; attribution to National Health Profile / Kapoor et al. (2020) is not verified from the local raw file | 11,587 state ICU beds (2,572 public / 9,015 private), as recorded in the provided file and `data/provenance.yaml`. |
+| **District Hospital Bed Capacity** | `ESTIMATED` | State anchors plus facility/population weighting | Derived district estimates from the analyst-specified 144,983 state hospital-bed anchor (`api/services.py`) across 35 districts¹. |
 | **Epidemiological Consumption** | `ASSUMED` | WHO IEHK 2017 & Sphere Project Guidelines | Daily consumption rates per patient/injured day (`config/demand_params.yaml`). |
 | **Road Transport Circuity** | `ASSUMED` | Haversine Distance $\times$ 1.3 Factor | Terrain circuity multiplier over 35 district centroids. |
 
@@ -84,6 +99,9 @@ Disaster healthcare logistics during extreme natural hazards face severe spatial
 ---
 
 ## 4. Empirical Benchmarks
+
+> [!WARNING]
+> **Evaluation snapshot review required before presentation.** The working-tree `reports/metrics.json` is modified and reports Ridge MAE 2.8117, $R^2=0.3180$, Spearman $\rho=0.5662$, and CQR coverage 93.6%. The committed report snapshot instead reports 2.8812, 0.2780, 0.5199, and 94.9%, respectively. The saved `models/impact_models.joblib` is unchanged in this worktree, so this audit did not establish which report snapshot corresponds to that artifact. The figures below currently reflect the modified report; retain them only as **under review** until the report, data, and model artifact are matched. The rolling-origin development evaluation described next is a separate procedure and its results must not be substituted for either time-split report.
 
 ### A. Impact Prediction Model (Time-Split Test Set $N=78$, 2019+)
 
@@ -95,15 +113,27 @@ Disaster healthcare logistics during extreme natural hazards face severe spatial
 | **XGBoost Regressor** | 3.2257 | 0.0786 | 0.3856 | 20.5% |
 | **Random Forest** | 3.2357 | 0.0263 | 0.3292 | 21.8% |
 
-- **Voting Ensemble (benchmark only)**: MAE 3.0365, R² 0.1870, Spearman ρ 0.4910; it is no longer the production point predictor.
+- **Voting Ensemble (benchmark only)**: MAE 3.0365, R² 0.1870, Spearman ρ 0.4910; it is not the active point predictor.
 - **Calibration protocol**: A positive-slope linear map is fit on Ridge predictions from 2013–2015; CQR uses a separate 2016–2018 calibration period. This raises test R² from 0.2890 to 0.3180 while preserving event ranking (Spearman 0.5662). Calibration does not add a new predictor and its validation gain may not persist on future events.
 - **Training-time preprocessing**: Numeric medians and scaling are fit using the chronological training partition only; missingness indicators are included. No held-out feature statistics are used during preprocessing.
 - **CQR Coverage**: The latest saved run reports empirical coverage of **93.6%** on the held-out sample for a nominal 90% target (95% bootstrap CI: 88.5–98.7%). The interval calibration period is 2016–2018; this small-sample estimate does not guarantee future coverage. Median interval multiplicative factor is about **1.18 million×**.
-- **Historical Backtesting**: Leave-One-Event-Out validation by `DisNo.` across benchmark disasters (`2005-0409-IND`, `2005-0541-IND`, `2001-0033-IND`, `1993-0074-IND`, `2019-0331-IND`). Actual/predicted casualty ratios range from about 8.4x to 655.6x (median 84.5x). Log prediction interval widths span 5.55 to 6.49 orders of magnitude (median 6.33 orders of magnitude).
+- **Historical Backtesting**: Leave-One-Event-Out validation by `DisNo.` across benchmark disasters (`2005-0409-IND`, `2005-0541-IND`, `2001-0033-IND`, `1993-0074-IND`, `2019-0331-IND`). Actual/predicted total-affected ratios and interval widths are included in the working-tree report but remain under the evaluation-snapshot review warning above.
 
-### B. Multi-Objective Optimization Benchmark (Stratified Evaluation across Empirical EM-DAT Strata)
+### B. Separate Development Evaluation: Five-Fold Rolling Origin
 
-Evaluated across 36 stratified Monte-Carlo benchmark scenarios spanning empirical EM-DAT casualty strata (Low: $10^3–10^4$, Moderate: $10^4–10^6$, Severe: $10^6+$ affected) crossed with three stock inventory multipliers (0.25, 0.50, and 1.0 of baseline capacity) across multiple epicentres and hazard types ($\ge 10$ scenarios per stratum). Evaluated through a single shared constraint checker and unified cost function.
+Run with:
+
+```bash
+python -m src.models.train_impact_model --rolling-origin-evaluation
+```
+
+This is a **development-only** chronological evaluation, not the 2019+ held-out test evaluation above. It uses five non-overlapping folds with fit, point-calibration, interval-calibration, and evaluation periods ending no later than 2018; the tests verify 176 unique evaluation events in total, fit preprocessing and base estimators only on each fold's fit rows, fit the point calibrator on its separate calibration rows, and use another separate interval-calibration period for CQR. The command fits fold models in memory, prints pooled and per-fold metrics, and does not write evaluation artifacts. No rolling-origin metric values are claimed here because that command was not run during this documentation audit.
+
+### C. Multi-Objective Optimization Benchmark (Stratified Evaluation across Empirical EM-DAT Strata)
+
+The current working-tree `reports/allocation_summary.json` is the authoritative scenario-count source consumed by API startup: its `total_scenarios` and `scenario_demand_stock` list both contain **36** scenarios (12 in each of Low, Moderate, and Severe strata). However, the current working-tree `reports/baseline_comparison.csv` is also modified and reports SCIP mean unmet demand of 24.67%, while the comparison tables below report 2.09%; the committed allocation summary previously contained 20 detailed scenarios. These artifacts are not reconciled in this audit. **Treat all optimizer metrics, stratum tables, and significance claims below as pending review; do not present them as verified results until they are tied to the same 36-scenario run and calculation.** No report or benchmark was changed or regenerated for this audit.
+
+The benchmark generator defaults to 12 scenarios per stratum (Low: $10^3–10^4$, Moderate: $10^4–10^6$, Severe: $10^6+$) and crosses them with inventory multipliers of 0.25, 0.50, and 1.0. Evaluation code uses a shared constraint checker and cost function.
 
 #### Table 1: Overall Baseline Comparison (All 36 Stratified Scenarios)
 
@@ -117,7 +147,7 @@ Evaluated across 36 stratified Monte-Carlo benchmark scenarios spanning empirica
 
 *Note: OR-Tools SCIP is NOT the lowest cost method overall (No Redistribution has 0 cost). However, OR-Tools SCIP achieves the lowest unmet demand (2.09% mean) and the lowest Cost Index among active redistribution heuristics (cheaper than Greedy Nearest 5.08B and Greedy Largest Surplus 6.54B).*
 
-#### Table 2: Stratified Breakdown across Casualty Strata
+#### Table 2: Stratified Breakdown across Affected-Population Strata
 
 | Stratum | Method | Unmet (Median %) | Unmet (P75 %) | Unmet (P90 %) | Unmet (Mean %) | Mean Cost Index | Mean Route-KM | Mean Min Coverage | Mean Violations |
 |---|---|---|---|---|---|---|---|---|---|
@@ -162,13 +192,12 @@ Evaluated across 36 stratified Monte-Carlo benchmark scenarios spanning empirica
 pip install -r requirements.txt
 pip install -r requirements-api.txt
 
-# Run analytical pipeline (builds datasets and trains models)
-python run_all.py
-
 # Launch FastAPI backend (port 8000)
 uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 Swagger UI available at `http://localhost:8000/docs`.
+
+The API loads the checked-in processed data and model artifacts at startup. `python run_all.py` is an optional full analytical pipeline rebuild that can rewrite datasets, models, and reports; it is not required to start the demo and should only be run when a rebuild is intended.
 
 #### 2. Frontend Setup
 ```bash
@@ -180,9 +209,9 @@ React web application available at `http://localhost:5173`.
 
 ---
 
-### Option B: Docker Compose (production-style prototype)
+### Option B: Docker Compose (local demonstration)
 
-Deploy both containers (FastAPI + React via Nginx) with a single command:
+Build and run the FastAPI and React/Nginx containers:
 ```bash
 # Build and run containers in detached mode
 docker compose up --build -d
@@ -199,42 +228,41 @@ docker compose down
 - Web Application: `http://localhost` (or `http://localhost:5173`)
 - REST API / Swagger: `http://localhost:8000/docs`
 
+The checked-in Compose configuration uses SQLite and a fixed development-only JWT value; it does not load the root `.env` into the API container, and its `JWT_SECRET_KEY` variable is not a setting consumed by the API. Use this Compose setup only for local demonstration until the deployment configuration passes the required non-development `JWT_SECRET` and `ADMIN_PASSWORD` values through a secret-management mechanism.
+
 ---
 
 ## 6. Testing & Quality Assurance
 
-The codebase includes comprehensive test suites across both backend and frontend layers (100% passing):
+In the current checkout, the test runs below passed: 71 Python tests (31 core and 40 API) and 10 frontend tests.
 
 ```bash
-# 1. Run Core Analytical Tests (31 tests: datasets, CQR intervals, SCIP constraints, stratified sampler, class balance, Holm correction)
+# Core analytical tests
 pytest tests/test_core.py -v
 
-# 2. Run API, Auth & Cryptographic Audit Tests (24 tests: endpoints, JWT RBAC, tamper-evident ledger, rate limits)
+# API, auth, audit, and rolling-origin split tests
 pytest tests_api/ -v
 
-# 3. Run Frontend Unit & Component Tests (Vitest)
+# Frontend unit and component tests (run from the repository root)
 cd frontend && npm test
 ```
 
 ---
 
-## 7. Security & User Credentials (Environment Seeding)
+## 7. Security & User Accounts
 
-The application configures authentication secrets and seed users via environment variables defined in `.env` (refer to `.env.example` template):
+For local API development, copy `.env.example` to `.env`; the API reads `SECRET_KEY` (or the optional `JWT_SECRET` override) from that file.
 
-- **JWT Secret**: Configured via `SECRET_KEY` in `.env` (defaults to development key if unconfigured).
-- **Environment Seeding & RBAC Roles**:
-  - `admin` role: Full system management, audit chain verification, user creation.
-  - `officer` role: Run surge simulations, trigger MIP allocations, submit review decisions.
-  - `viewer` role: Read-only inspection of geospatial maps, backtest logs, and governance ledgers.
-- User accounts are created via `POST /api/auth/register` (initial account auto-assigned `admin` role; subsequent registrations require `admin` Bearer token authorization).
+- **Development-only default**: If no secret is configured, the API falls back to a built-in development key. Do not use that default outside local development. Non-development startup requires explicitly configured `JWT_SECRET` and `ADMIN_PASSWORD`.
+- **Roles**: `admin` can access role-guarded operations; `officer` and `coordinator` can run simulations and allocations; `viewer` has read access to protected read endpoints. Recording an audit decision is restricted to `coordinator` or `admin` (the `officer` role cannot submit review decisions).
+- **Rate limits**: Login is limited to 10 requests/minute and `/api/simulate` to 30 requests/minute, using in-memory per-process counters.
+- **Registration**: The first account registered in an empty database is assigned `admin`. Later registrations require an admin bearer token.
 
 ---
 
 ## 8. Contributors
 
-- **[YOUR NAME]**: ML pipeline, data layer, optimiser, validation
-- **[TEAMMATE NAME]**: API, authentication, React frontend, Docker
+Add verified contributor names and their actual contributions before submission; the previous entries were placeholders.
 
 ---
 
@@ -250,12 +278,12 @@ The application configures authentication secrets and seed users via environment
 
 ## 10. Before vs. After Framework Evolution
 
-| Dimension | Legacy Synthetic Prototype | Current Verified Framework |
+| Dimension | Legacy Synthetic Prototype | Current Implementation |
 |---|---|---|
-| **Data Layer** | Synthetic random data arrays | Real CRED EM-DAT (1900–2026), WorldPop 2020 1km grid, and National Health Portal |
-| **Model Performance** | Synthetic $R^2 \approx 0.88–0.99$ (circular generator recovery) | Real calibrated Ridge $R^2 = 0.3180$, MAE $= 2.8117$ (log-scale), Spearman $\rho = 0.5662$ on test set ($N=78$) |
-| **Uncertainty Bounds** | Narrow synthetic point predictions | CQR 90% conformal intervals (93.6% test coverage; 95% CI 88.5–98.7%) with median interval factor 1,184,849x |
-| **Resource Allocation** | Claimed OR-Tools was "lowest cost overall" | Verified OR-Tools SCIP achieves lowest unmet demand (2.09% mean) and lowest cost index among active greedy heuristics (3.41B Cost Index units) |
+| **Data Layer** | Synthetic random data arrays | Real CRED EM-DAT (1900–2026), WorldPop 2020 constrained grid (measured 3 arc-second pixels; see resolution review in Section 3), and National Health Portal |
+| **Model Performance** | Synthetic $R^2 \approx 0.88–0.99$ (circular generator recovery) | Working-tree report: Ridge $R^2 = 0.3180$, MAE $= 2.8117$ (log-scale), Spearman $\rho = 0.5662$ on test set ($N=78$); **under review against the saved model artifact** |
+| **Uncertainty Bounds** | Narrow synthetic point predictions | Working-tree report: CQR 90% empirical test coverage 93.6% (95% CI 88.5–98.7%); **under review against the saved model artifact** |
+| **Resource Allocation** | Claimed OR-Tools was "lowest cost overall" | **Pending review**: modified scenario summary and comparison reports disagree; see the benchmark warning in Section 4. |
 | **Surrogate Validation** | Claimed real shortage prediction | Explicitly badged as fidelity to Monte-Carlo surge simulator under scenario-based splitting across balanced risk regimes ($\ge 15\%$ per class), evaluated on balanced accuracy, macro-F1, multiclass ECE with reliability curves, and majority baseline |
 
 ---
@@ -263,9 +291,9 @@ The application configures authentication secrets and seed users via environment
 ## 11. Documentation Index
 
 - [REST API Reference](docs/API.md): Detailed endpoint definitions, payloads, response codes, and rate limits.
-- [5-Minute Full-Stack Viva Demo Script](docs/DEMO_SCRIPT_FULLSTACK.md): Step-by-step viva presentation script with talking points.
-- [Comprehensive Viva Q&A Guide](docs/VIVA_QA.md): 28 in-depth questions and answers for viva voce and technical review panels.
-- [Project Progress & Audit Trail](PROGRESS.md): Verified implementation timeline and technical audit history.
+- [5-Minute Full-Stack Viva Demo Script](docs/DEMO_SCRIPT_FULLSTACK.md): Step-by-step demo script; its ICU count and raster resolution claims conflict with the current source files and need correction before use.
+- [Comprehensive Viva Q&A Guide](docs/VIVA_QA.md): 28 viva questions; its impact metrics, scenario count, and test count are from an older snapshot and need reconciliation before use.
+- [Project Progress & Audit Trail](PROGRESS.md): Historical notes only; its test counts and impact metrics are stale versus this checkout and need reconciliation.
 
 ---
 
