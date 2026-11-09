@@ -76,10 +76,12 @@ def solve_resource_allocation(
     w_unmet: float = 1e6,
     w_cost: float = 1.0,
     w_fairness: float = 1e5,
+    lexicographic: bool = True,
 ):
     """
     Solve multi-objective resource allocation MIP problem via Google OR-Tools SCIP solver.
     Incorporates:
+      - Lexicographic 2-stage optimization (default True) guaranteeing absolute priority of unmet demand [DEF-PRIORITY]
       - Robust source reserve: max(alpha * demand, beta * stock) [DEF-04]
       - Binary route activation variables y[i, j] with defensible Big-M linking [DEF-08]
       - Fixed route cost + variable transport cost aligned with evaluation metrics [DEF-08]
@@ -169,39 +171,78 @@ def solve_resource_allocation(
             solver.Add(unmet[j, m] >= dem - net_final_stock, f"unmet_def_{j}_{m}")
 
             # Eligibility-aware fairness constraint (DEF-FAIR):
-            # District is eligible if it has strictly positive demand, pre-transfer shortage,
-            # and at least one feasible donor route for this commodity.
             has_donor = any((i, j, m) in x for i in districts if i != j)
             if dem > 0 and (dem - stk) > 0 and has_donor:
                 solver.Add(net_final_stock >= theta * dem, f"fairness_{j}_{m}")
                 eligible_pairs.append((j, m))
 
-    # 3. Multi-Objective Objective Function
-    obj = solver.Objective()
+    stage1_status = None
+    optimal_weighted_unmet = None
 
-    # Prioritize unmet demand reduction
-    for j in districts:
-        for m in medicines:
-            crit = MEDICINE_CRITICALITY.get(m, 1.0)
-            obj.SetCoefficient(unmet[j, m], float(w_unmet * crit))
+    if lexicographic:
+        # -------------------------------------------------------------
+        # STAGE 1: Absolute minimization of weighted unmet demand
+        # -------------------------------------------------------------
+        obj1 = solver.Objective()
+        for j in districts:
+            for m in medicines:
+                crit = MEDICINE_CRITICALITY.get(m, 1.0)
+                obj1.SetCoefficient(unmet[j, m], float(crit))
+        obj1.SetMinimization()
 
-    # Variable transport cost: sum k[c] * d_ij * x[i, j, m]
-    for (i, j, m), var in x.items():
-        d_ij = float(distances_df.loc[i, j])
-        obj.SetCoefficient(var, float(w_cost * cost_per_km_unit * d_ij))
+        stage1_status = solver.Solve()
+        if stage1_status not in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
+            raise RuntimeError(f"Stage 1 of lexicographic optimization failed with status {stage1_status}")
 
-    # Fixed route activation cost: F * sum y[i, j]
-    for (i, j), var_y in y.items():
-        obj.SetCoefficient(var_y, float(w_cost * fixed_route_cost))
+        optimal_weighted_unmet = float(obj1.Value())
 
-    # Maximize min coverage across eligible districts
-    if eligible_pairs:
-        obj.SetCoefficient(theta, float(-w_fairness))
+        # Constrain Stage 1 objective value with numerical tolerance
+        unmet_weighted_sum = solver.Sum(unmet[j, m] * MEDICINE_CRITICALITY.get(m, 1.0) for j in districts for m in medicines)
+        solver.Add(unmet_weighted_sum <= optimal_weighted_unmet + 1e-4, "lexicographic_unmet_bound")
 
-    obj.SetMinimization()
+        # -------------------------------------------------------------
+        # STAGE 2: Minimize transport costs and maximize fairness
+        # -------------------------------------------------------------
+        obj2 = solver.Objective()
+        obj2.Clear()
 
-    # 4. Solve
-    status = solver.Solve()
+        # Variable transport cost: sum k[c] * d_ij * x[i, j, m]
+        for (i, j, m), var in x.items():
+            d_ij = float(distances_df.loc[i, j])
+            obj2.SetCoefficient(var, float(w_cost * cost_per_km_unit * d_ij))
+
+        # Fixed route activation cost: F * sum y[i, j]
+        for (i, j), var_y in y.items():
+            obj2.SetCoefficient(var_y, float(w_cost * fixed_route_cost))
+
+        # Maximize min coverage across eligible districts
+        if eligible_pairs:
+            obj2.SetCoefficient(theta, float(-w_fairness))
+
+        obj2.SetMinimization()
+        status = solver.Solve()
+
+    else:
+        # Standard weighted scalarized optimization
+        obj = solver.Objective()
+        for j in districts:
+            for m in medicines:
+                crit = MEDICINE_CRITICALITY.get(m, 1.0)
+                obj.SetCoefficient(unmet[j, m], float(w_unmet * crit))
+
+        for (i, j, m), var in x.items():
+            d_ij = float(distances_df.loc[i, j])
+            obj.SetCoefficient(var, float(w_cost * cost_per_km_unit * d_ij))
+
+        for (i, j), var_y in y.items():
+            obj.SetCoefficient(var_y, float(w_cost * fixed_route_cost))
+
+        if eligible_pairs:
+            obj.SetCoefficient(theta, float(-w_fairness))
+
+        obj.SetMinimization()
+        status = solver.Solve()
+
     solve_duration_ms = (time.time() - start_time) * 1000
 
     # 5. Extract Results
@@ -282,7 +323,10 @@ def solve_resource_allocation(
         "min_coverage_after": float(round(float(min_cov_after), 3)),
         "active_routes_count": int(active_routes_count),
         "fairness_theta": float(round(theta.solution_value() if (status in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE) and eligible_pairs) else 1.0, 4)),
-        "eligible_fairness_pairs": len(eligible_pairs)
+        "eligible_fairness_pairs": len(eligible_pairs),
+        "lexicographic_optimization": bool(lexicographic),
+        "stage1_status": "OPTIMAL" if stage1_status == pywraplp.Solver.OPTIMAL else "FEASIBLE" if stage1_status == pywraplp.Solver.FEASIBLE else ("N/A" if stage1_status is None else "INFEASIBLE"),
+        "optimal_weighted_unmet": float(round(optimal_weighted_unmet, 2)) if optimal_weighted_unmet is not None else None
     }
 
     return alloc_df, summary
@@ -339,19 +383,24 @@ def evaluate_allocation_plan(plan_df: pd.DataFrame, region_demands: dict, region
     transport_cost = unit_km * COST_PER_UNIT_KM + len(active_routes) * FIXED_ROUTE_COST
 
     unmet = 0.0
+    weighted_unmet = 0.0
     coverages = []
     for j in districts:
         for m in MEDICINES:
             stk = float(region_stocks.get(j, {}).get(m, 0.0))
             dem = float(region_demands.get(j, {}).get(m, 0.0))
             final_stk = stk + transfers_in[j][m] - transfers_out[j][m]
-            unmet += max(0.0, dem - final_stk)
+            u = max(0.0, dem - final_stk)
+            unmet += u
+            weighted_unmet += u * MEDICINE_CRITICALITY.get(m, 1.0)
             if dem > 0:
                 coverages.append(min(1.0, max(0.0, final_stk / dem)))
 
     min_cov = float(np.min(coverages)) if coverages else 1.0
     return {
         "unmet_demand": round(float(unmet), 1),
+        "primary_objective_unmet": round(float(weighted_unmet), 2),
+        "secondary_objective_cost": round(float(transport_cost), 2),
         "cost": round(float(transport_cost), 2),
         "unit_km": round(float(unit_km), 1),
         "route_km": round(float(route_km), 1),

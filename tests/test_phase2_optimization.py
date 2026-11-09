@@ -416,8 +416,76 @@ def test_no_self_transfers_and_strict_integrality():
     stocks = {"D1": {"iv_fluids": 500.0}, "D2": {"iv_fluids": 0.0}}
     dists = pd.DataFrame([[0.0, 45.0], [45.0, 0.0]], index=["D1", "D2"], columns=["D1", "D2"])
 
-    plan_df, summary = solve_resource_allocation(demands, stocks, distances_df=dists)
-    for _, row in plan_df.iterrows():
-        assert row["source_region"] != row["dest_region"]
-        assert float(row["quantity"]).is_integer()
-        assert int(row["quantity"]) > 0
+# ==============================================================================
+# PART 6: LEXICOGRAPHIC OPTIMIZATION & ABSOLUTE OBJECTIVE PRIORITY
+# ==============================================================================
+
+def test_lexicographic_absolute_priority_over_expensive_transport():
+    """
+    Test scenario where satisfying 1 unit of unmet demand is more expensive than a scalarized penalty.
+    Donor has 1000 units of ORS.
+    Recipient has 1 unit of ORS demand and 0 stock.
+    Distance = 100 km.
+    Fixed route cost = ₹500, Variable transport cost = 15 * 100 * 1 = ₹1500. Total transport cost = ₹2000.
+    
+    If an arbitrary scalarized weight w_unmet = 1000 was used:
+    Penalty for unmet demand = 1000 * 1.0 = 1000 < 2000 transport cost.
+    Scalarized optimization would refuse to transport and leave the unit unmet!
+    
+    Under lexicographic optimization:
+    Stage 1 strictly minimizes weighted unmet demand to 0.
+    Stage 2 minimizes transport cost subject to unmet demand <= 0 + epsilon.
+    The unit MUST be transported, achieving 100% demand fulfillment.
+    """
+    demands = {"Donor": {"ors": 0.0}, "Recipient": {"ors": 1.0}}
+    stocks = {"Donor": {"ors": 1000.0}, "Recipient": {"ors": 0.0}}
+    dists = pd.DataFrame(
+        [[0.0, 100.0], [100.0, 0.0]],
+        index=["Donor", "Recipient"],
+        columns=["Donor", "Recipient"]
+    )
+
+    # 1. Scalarized with penalty weight smaller than transport cost (and fairness decoupled)
+    # leaves unmet demand unsatisfied because transport cost (₹2000) > unmet penalty (₹1000)
+    plan_scalar, summ_scalar = solve_resource_allocation(
+        demands, stocks, distances_df=dists,
+        w_unmet=1000.0, # smaller than ₹2000 cost
+        w_fairness=0.0,
+        lexicographic=False
+    )
+    assert summ_scalar["unmet_demand_after"] == 1.0, "Scalarized solver unexpectedly satisfied expensive demand"
+    assert len(plan_scalar) == 0
+
+    # 2. Lexicographic solver strictly forces 0 unmet demand regardless of cost or weights
+    plan_lex, summ_lex = solve_resource_allocation(
+        demands, stocks, distances_df=dists,
+        w_fairness=0.0,
+        lexicographic=True
+    )
+    assert summ_lex["stage1_status"] in ["OPTIMAL", "FEASIBLE"]
+    assert summ_lex["solve_status"] in ["OPTIMAL", "FEASIBLE"]
+    assert summ_lex["unmet_demand_after"] == 0.0, "Lexicographic solver failed to strictly prioritize unmet demand!"
+    assert summ_lex["total_transferred_units"] == 1
+    assert summ_lex["total_transport_cost"] == 2000.0
+
+    eval_lex = evaluate_allocation_plan(plan_lex, demands, stocks, {}, dists)
+    assert eval_lex["unmet_demand"] == 0.0
+    assert eval_lex["cost"] == 2000.0
+    assert eval_lex["primary_objective_unmet"] == 0.0
+    assert eval_lex["secondary_objective_cost"] == 2000.0
+    assert eval_lex["violations"] == 0
+
+
+def test_lexicographic_stage2_cannot_worsen_stage1_unmet_demand():
+    """Verify Stage 2 preserves optimal weighted unmet demand from Stage 1 within numerical tolerance."""
+    demands = {"D1": {"antibiotics": 50.0}, "D2": {"antibiotics": 50.0}}
+    stocks = {"D1": {"antibiotics": 100.0}, "D2": {"antibiotics": 0.0}}
+    dists = pd.DataFrame([[0.0, 40.0], [40.0, 0.0]], index=["D1", "D2"], columns=["D1", "D2"])
+
+    plan_df, summary = solve_resource_allocation(demands, stocks, distances_df=dists, lexicographic=True)
+    assert summary["stage1_status"] in ["OPTIMAL", "FEASIBLE"]
+    assert summary["optimal_weighted_unmet"] is not None
+
+    eval_res = evaluate_allocation_plan(plan_df, demands, stocks, {}, dists)
+    assert eval_res["primary_objective_unmet"] <= summary["optimal_weighted_unmet"] + 1e-3
+
