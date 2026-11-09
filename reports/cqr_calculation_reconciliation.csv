@@ -1,0 +1,6 @@
+parameter_name,mathematical_formula,log_space_value,natural_space_multiplier,empirical_coverage_pct,interpretation
+Calibration Margin (E),"Quantile_(1-alpha)(s_i, N=71)",0.9314,exp(0.9314) = 2.538x one-sided shift,"94.9% (EM-DAT test set, N=71)",Conformal adjustment added to q_high (0.95) and subtracted from q_low (0.05).
+Conformal Calibration Expansion Factor,exp(2 * E),1.8628,exp(1.8628) = 6.442x ratio expansion,94.9% (Marginal guarantee >= 90%),Ratio by which conformal calibration widens the prediction interval relative to raw quantiles.
+Uncalibrated Quantile Model Spread,median(q_0.95(x) - q_0.05(x)),4.3879,exp(4.3879) = 80.47x raw quantile spread,"78.2% (Uncalibrated, under-covers nominal 90%)",Raw inter-quantile range produced by Gradient Boosting Quantile Regressors before CQR.
+Total Calibrated Median Interval Width,(q_0.95 - q_0.05) + 2 * E,6.2507,exp(6.2507) = 518.38x (~518.4x),94.9% (Fully calibrated test coverage),Total ratio between upper and lower casualty bounds: Upper/Lower = exp(Delta_log) = 518.4x.
+Clinical Demand Conformal Global Margin,"Quantile_0.90(abs(y - y_hat), N=144)",N/A (Additive units),+-34.1 units additive buffer,"93.75% (Overall holdout across 4 services, N=48)","Additive conformal margin. ICU: 100%, Surgery: 100%, GenMed: 91.7%, Emergency: 83.3%."
