@@ -1,0 +1,16 @@
+feature_name,coefficient,abs_importance
+roll_mean_12,-10.6728,10.6728
+roll_mean_6,8.6421,8.6421
+macro_trend,5.6889,5.6889
+lag_1,5.2296,5.2296
+lag_2,-4.3125,4.3125
+service_General_Medicine,3.2043,3.2043
+roll_mean_3,2.865,2.865
+lag_12_seasonal,-2.8257,2.8257
+service_Emergency,-2.3283,2.3283
+roll_std_6,-1.4813,1.4813
+service_Surgery,-1.4595,1.4595
+lag_3,-0.7062,0.7062
+sin_month,0.6433,0.6433
+service_ICU,0.5834,0.5834
+cos_month,0.0807,0.0807

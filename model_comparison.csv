@@ -1,0 +1,10 @@
+model,mean_walk_forward_MAE,mean_walk_forward_RMSE,mean_walk_forward_R2,mean_walk_forward_WAPE_pct,mean_walk_forward_Deviance
+Tuned_Ridge,12.87,20.44,0.815,13.23,3.83
+Experiment_8_Ridge_Baseline,13.01,20.46,0.8147,13.38,3.83
+ElasticNet,13.46,21.12,0.8039,13.85,3.96
+Random_Forest,14.19,21.83,0.7917,14.62,4.26
+Hybrid_Seasonal_Ridge,15.38,24.01,0.7405,15.83,4.73
+Seasonal_Naive_Baseline,15.61,24.55,0.7308,16.05,5.13
+Historical_Average_Baseline,20.0,28.87,0.6412,20.61,7.33
+Gradient_Boosted_Trees,24.22,30.86,0.5872,24.99,9.88
+Poisson_Count_Regressor,185.44,325.32,-65.3787,186.9,1024.88

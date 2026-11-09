@@ -1,0 +1,85 @@
+{
+  "model_name": "Hybrid_Seasonal_Ridge",
+  "version": "1.0.0",
+  "architecture": "Two-Stage Hybrid Forecaster (Seasonal Naive Base + Residual L2 Ridge)",
+  "features": [
+    "lag_1",
+    "lag_2",
+    "lag_3",
+    "lag_12_seasonal",
+    "roll_mean_3",
+    "roll_mean_6",
+    "roll_mean_12",
+    "roll_std_6",
+    "sin_month",
+    "cos_month",
+    "macro_trend",
+    "service_ICU",
+    "service_Emergency",
+    "service_General_Medicine",
+    "service_Surgery"
+  ],
+  "services": [
+    "ICU",
+    "Emergency",
+    "General Medicine",
+    "Surgery"
+  ],
+  "observations": 624,
+  "validation_scheme": "Expanding-Window Temporal Cross-Validation (4 Folds, 12-month steps)",
+  "untouched_holdout_periods": "145..156 (Final 12 Months)",
+  "walk_forward_cv_metrics": {
+    "model": "Hybrid_Seasonal_Ridge",
+    "mean_walk_forward_MAE": 15.38,
+    "mean_walk_forward_RMSE": 24.01,
+    "mean_walk_forward_R2": 0.7405,
+    "mean_walk_forward_WAPE_pct": 15.83,
+    "mean_walk_forward_Deviance": 4.73
+  },
+  "untouched_holdout_metrics": {
+    "MAE": 17.54,
+    "RMSE": 31.25,
+    "R2": 0.6479,
+    "WAPE_pct": 17.82,
+    "Poisson_Deviance": 6.07
+  },
+  "conformal_uncertainty": {
+    "nominal_coverage_target": 0.9,
+    "empirical_holdout_coverage": 93.75,
+    "margin_units": 34.1
+  },
+  "service_specific_holdout_metrics": {
+    "ICU": {
+      "MAE": 6.84,
+      "RMSE": 8.64,
+      "R2": 0.0188,
+      "WAPE_pct": 12.55,
+      "Poisson_Deviance": 1.35
+    },
+    "Emergency": {
+      "MAE": 26.38,
+      "RMSE": 42.61,
+      "R2": -2.443,
+      "WAPE_pct": 24.51,
+      "Poisson_Deviance": 11.91
+    },
+    "General Medicine": {
+      "MAE": 27.41,
+      "RMSE": 43.48,
+      "R2": 0.416,
+      "WAPE_pct": 16.79,
+      "Poisson_Deviance": 9.32
+    },
+    "Surgery": {
+      "MAE": 9.51,
+      "RMSE": 11.19,
+      "R2": 0.1357,
+      "WAPE_pct": 13.91,
+      "Poisson_Deviance": 1.69
+    }
+  },
+  "spike_resilience": {
+    "mean_spike_error": 137.51,
+    "mean_non_spike_error": -5.91
+  }
+}
