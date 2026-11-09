@@ -49,7 +49,7 @@ async def readiness_check(request: Request) -> Dict[str, Any]:
     shap_loaded = hasattr(request.app.state, "shap_explainer") and request.app.state.shap_explainer is not None
     dist_loaded = hasattr(request.app.state, "distances_df") and request.app.state.distances_df is not None
 
-    if not is_ready or not (pop_loaded and dist_loaded):
+    if not is_ready or not (pop_loaded and dist_loaded and models_loaded):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="System is not ready: required data or model artifacts are still loading or unavailable."
