@@ -1,0 +1,4 @@
+parameter_name,log_space_value,additive_symmetry,raw_casualty_equivalent,scientific_interpretation
+Conformal Calibration Margin (E = Q_(1-alpha)),0.9314,+-0.9314 log1p units,exp(0.9314) = 2.54x one-sided shift,Empirical (1-alpha) quantile of non-conformity scores derived from N=71 calibration events
+Quantile Regressor Median Width (q_0.95 - q_0.05),4.3879,Asymmetric conditional quantile spread,exp(4.3879) = 80.47x raw spread,Uncalibrated 90% inter-quantile spread from Gradient Boosting Quantile Regressors
+Total CQR Median Interval Width,6.2507,4.3879 + 2 * 0.9314,exp(6.2507) = 518.4x,Full calibrated prediction interval width on test set: (q_high + E) - (q_low - E)
