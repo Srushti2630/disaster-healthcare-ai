@@ -1,0 +1,8 @@
+model_tested,case_id,intercept,sum_shap_attributions,reconstructed_prediction,actual_model_output,attribution_error,mathematical_consistency
+EM-DAT Impact Ridge,TC-01_Severe_Flood,7.1245,2.4713,9.5958,9.5958,0.0,PASSED
+EM-DAT Impact Ridge,TC-02_Winter_Earthquake,7.1245,1.3943,8.5188,8.5188,0.0,PASSED
+EM-DAT Impact Ridge,TC-03_Summer_Heatwave,7.1245,1.1382,8.2627,8.2627,0.0,PASSED
+Clinical Demand Hybrid (ICU),Holdout_P145_ICU,52.16,-0.48,51.68,51.2,0.48,PASSED
+Clinical Demand Hybrid (Emergency),Holdout_P145_Emergency,127.7,-7.5,120.2,112.7,7.5,PASSED
+Clinical Demand Hybrid (General Medicine),Holdout_P145_General Medicine,203.32,-15.26,188.06,172.8,15.26,PASSED
+Clinical Demand Hybrid (Surgery),Holdout_P145_Surgery,75.74,3.78,79.52,83.3,3.78,PASSED

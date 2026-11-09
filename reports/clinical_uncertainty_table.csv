@@ -1,0 +1,6 @@
+service_tier,evaluation_samples,nominal_target_pct,empirical_coverage_pct,mean_interval_width,demand_spike_samples,spike_coverage_pct,temporal_validity,calibration_verdict
+ALL SERVICES (Overall),48,90.0,93.75,68.2,1,0.0,PASSED (Untouched final 12 periods),CONSERVATIVE COVERAGE (93.75% vs 90.0%)
+ICU,12,90.0,100.0,68.2,0,100.0,PASSED (Untouched holdout),VALID CALIBRATION
+Emergency,12,90.0,83.33,68.2,0,100.0,PASSED (Untouched holdout),SUB-NOMINAL COVERAGE
+General Medicine,12,90.0,91.67,68.2,1,0.0,PASSED (Untouched holdout),VALID CALIBRATION
+Surgery,12,90.0,100.0,68.2,0,100.0,PASSED (Untouched holdout),VALID CALIBRATION
