@@ -60,8 +60,10 @@ def test_facilities_total_above_4000(client):
     total_fac = data.get("total_cleaned_facilities") or data.get("total_facilities")
     assert total_fac is not None
     assert total_fac > 4000
+    assert total_fac == 4767
     sum_facilities = sum(d["facilities"]["total_facilities"] for d in data["districts"])
     assert sum_facilities > 4000
+    assert sum_facilities == 4767
 
 def test_get_geo_districts_endpoint(client):
     res = client.get("/api/geo/districts")
@@ -219,6 +221,9 @@ def test_explain_local_endpoint(client):
     assert len(data["top_contributions"]) <= 6
     assert len(data["top_contributions"]) > 0
     assert "summary_sentence" in data
+    assert "model_name" in data
+    assert "XGBoost" in data["model_name"] or "Tree-SHAP" in data["model_name"]
+    assert "Ridge" not in data["model_name"]
     for item in data["top_contributions"]:
         assert "feature" in item
         assert "contribution" in item

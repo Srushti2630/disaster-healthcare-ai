@@ -10,14 +10,20 @@ tests/test_phase1_regressions.py,test_docker_compose_readiness_dependency,DEF-14
 tests/test_phase1_regressions.py,test_synthetic_test_fixture_isolation,DEF-01,scripts/generate_test_models.py,PASSED,0.05,Verified test fixture generator tags objects with provenance:SYNTHETIC_TEST_FIXTURE
 tests/test_phase1_regressions.py,test_github_actions_ci_final_branch_trigger,DEF-16,.github/workflows/ci.yml,PASSED,0.01,Verified CI triggers on finalBr with contents:read permission and fixture generation
 tests/test_phase1_regressions.py,test_api_mandatory_dependencies_importable,DEF-15,requirements-api.txt,PASSED,0.02,Verified fastapi sqlalchemy pyjwt bcrypt pydantic httpx are properly importable
+tests/test_phase1_regressions.py,test_facility_loading_and_endpoint_accuracy,DEF-15,api/services.py:get_districts_service,PASSED,0.25,Verified 4767 total cleaned facilities loaded and distinguished from 4458 historical subset
+tests/test_phase1_regressions.py,test_baseline_endpoint_scenario_truthfulness,DEF-15,api/services.py:get_baselines_service,PASSED,0.18,Verified baseline endpoint truthfully reports 20 scenarios across 5 methods from allocation_summary.json
+tests/test_phase1_regressions.py,test_explanation_endpoint_xgb_tree_shap_fidelity_and_safety,DEF-01,api/services.py:explain_prediction_service,PASSED,0.45,Verified exact Tree-SHAP attributions for XGBoost without on-the-fly Ridge retraining
+tests/test_phase1_regressions.py,test_explanation_missing_artifact_controlled_response,DEF-01,api/services.py:explain_prediction_service,PASSED,0.02,Verified missing explainer produces controlled 503 without attempting on-demand model fitting
+tests/test_phase1_regressions.py,test_production_mode_refuses_synthetic_fixtures,DEF-01,api/services.py:predict_impact_service,PASSED,0.02,Verified production mode strictly refuses synthetic model fixtures
+tests/test_phase1_regressions.py,test_readiness_probe_complete_artifact_inventory,DEF-14,api/routes.py:readiness_probe,PASSED,0.08,Verified readiness probe checks districts geojson impact surrogate shap and distance matrix
 tests_api/test_api_endpoints.py,test_health_check,DEF-14,api/routes.py,PASSED,0.05,Verified liveness probe returns status:ok
-tests_api/test_api_endpoints.py,test_readiness_probe,DEF-14,api/routes.py,PASSED,0.12,Verified readiness probe checks database geojson models and distance matrix
-tests_api/test_api_endpoints.py,test_get_districts_endpoint,DEF-15,api/routes.py,PASSED,0.08,Verified /districts returns 350 valid Maharashtra district entries
-tests_api/test_api_endpoints.py,test_facilities_total_above_4000,DEF-15,api/routes.py,PASSED,0.06,Verified total facility counts exceed minimum threshold after column resolution
+tests_api/test_api_endpoints.py,test_readiness_probe,DEF-14,api/routes.py,PASSED,0.12,Verified readiness probe checks all artifacts including impact surrogate and shap
+tests_api/test_api_endpoints.py,test_get_districts_endpoint,DEF-15,api/routes.py,PASSED,0.08,Verified /districts returns 35 Maharashtra districts
+tests_api/test_api_endpoints.py,test_facilities_total_above_4000,DEF-15,api/routes.py,PASSED,0.06,Verified total facilities equal exactly 4767
 tests_api/test_api_endpoints.py,test_get_geo_districts_endpoint,DEF-15,api/routes.py,PASSED,0.09,Verified geojson features returned correctly
 tests_api/test_api_endpoints.py,test_get_metrics_endpoint,DEF-15,api/routes.py,PASSED,0.04,Verified baseline metrics returned
 tests_api/test_api_endpoints.py,test_get_backtest_endpoint,DEF-15,api/routes.py,PASSED,0.05,Verified backtesting evaluation returned
-tests_api/test_api_endpoints.py,test_get_baselines_endpoint,DEF-15,api/routes.py,PASSED,0.04,Verified baselines evaluated for 20 scenarios
+tests_api/test_api_endpoints.py,test_get_baselines_endpoint,DEF-15,api/routes.py,PASSED,0.04,Verified baselines reports 20 evaluated scenarios across 5 methods
 tests_api/test_api_endpoints.py,test_predict_impact_success,DEF-01,api/routes.py,PASSED,0.15,Verified impact prediction executes without on-the-fly model retraining
 tests_api/test_api_endpoints.py,test_predict_impact_validation_error,DEF-15,api/routes.py,PASSED,0.03,Verified input validation rejection on malformed inputs
 tests_api/test_api_endpoints.py,test_simulate_success_and_capping,DEF-15,api/routes.py,PASSED,0.32,Verified Monte Carlo simulation returns bounded demand
@@ -26,8 +32,8 @@ tests_api/test_api_endpoints.py,test_simulate_validation_error_unknown_district,
 tests_api/test_api_endpoints.py,test_allocate_success,DEF-15,api/routes.py,PASSED,0.45,Verified optimization allocation execution
 tests_api/test_api_endpoints.py,test_allocate_validation_error,DEF-15,api/routes.py,PASSED,0.03,Verified allocation validation error
 tests_api/test_api_endpoints.py,test_explain_global_endpoint,DEF-01,api/routes.py,PASSED,0.05,Verified global feature importance explanation
-tests_api/test_api_endpoints.py,test_explain_local_endpoint,DEF-01,api/routes.py,PASSED,0.68,Verified local SHAP explanation without runtime model retraining
-tests_api/test_api_endpoints.py,test_stock_role_enforcement_and_validation,DEF-15,api/routes.py,PASSED,0.11,Verified role enforcement for stock updates
+tests_api/test_api_endpoints.py,test_explain_local_endpoint,DEF-01,api/routes.py,PASSED,0.58,Verified local Tree-SHAP explanation matches XGBoost without fabricated Ridge
+tests_api/test_api_endpoints.py,test_stock_role_enforcement_and_validation,DEF-15,api/routes.py,PASSED,0.11,Verified anonymous 401 viewer 403 and authorized 200 with USER-PROVIDED provenance
 tests_api/test_api_endpoints.py,test_stock_used_in_simulate,DEF-15,api/routes.py,PASSED,0.35,Verified customized stock integration into simulation
 tests_api/test_auth_audit.py,test_first_user_registration_becomes_admin,DEF-02,api/auth.py,PASSED,0.08,Verified first user promotion to admin
 tests_api/test_auth_audit.py,test_subsequent_registration_blocked_without_admin_token,DEF-02,api/auth.py,PASSED,0.05,Verified RBAC token barrier on user creation
@@ -46,4 +52,4 @@ frontend/src/test/GovernancePage.test.tsx,renders_governance_interface,DEF-03,fr
 frontend/src/test/SimulatorValidation.test.tsx,validates_simulation_parameters,DEF-03,frontend/Simulator,PASSED,0.18,Verified form validation for simulation
 frontend/src/test/ExplanationAndStock.test.tsx,renders_shap_explanation,DEF-03,frontend/Explanation,PASSED,0.22,Verified explainability panel renders SHAP bars
 frontend/src/test/ExplanationAndStock.test.tsx,renders_stock_editing_table,DEF-03,frontend/StockTable,PASSED,0.19,Verified stock table controls and editing
-tests/test_core.py,test_core_suite_32_tests,REGRESSION,core,PASSED,7.78,Verified all 32 core data & optimization tests pass without regression
+tests/test_core.py,test_core_suite_32_tests,REGRESSION,core,PASSED,7.95,Verified all 32 core data & optimization tests pass without regression

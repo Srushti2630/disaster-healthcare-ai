@@ -17,6 +17,7 @@ class Settings(BaseSettings):
 
     APP_NAME: str = "Disaster Healthcare AI API"
     APP_ENV: str = "development"
+    ENVIRONMENT: str = "development"
     DEBUG: bool = False
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000

@@ -33,8 +33,9 @@ def generate_fixtures_if_missing():
     impact_path = MODELS_DIR / "impact_models.joblib"
     surrogate_path = MODELS_DIR / "shortage_classifier.joblib"
     pipeline_path = MODELS_DIR / "pipeline_bundle.joblib"
+    shap_path = MODELS_DIR / "shap_explainer.joblib"
 
-    if impact_path.exists() and surrogate_path.exists() and pipeline_path.exists():
+    if impact_path.exists() and surrogate_path.exists() and pipeline_path.exists() and shap_path.exists():
         print(f"✓ Production model artifacts already exist in {MODELS_DIR}. Skipping synthetic test generation.")
         return False
 
@@ -132,6 +133,20 @@ def generate_fixtures_if_missing():
     if not pipeline_path.exists():
         joblib.dump(pipeline_bundle, pipeline_path)
         print(f"✓ Created test fixture: {pipeline_path}")
+
+    if not shap_path.exists():
+        try:
+            import shap
+            from sklearn.ensemble import RandomForestRegressor
+            rf_for_shap = RandomForestRegressor(n_estimators=3, random_state=42)
+            rf_for_shap.fit(X_trans, y_syn)
+            tree_explainer = shap.TreeExplainer(rf_for_shap)
+            tree_explainer.is_synthetic = True
+            tree_explainer.provenance = "SYNTHETIC_TEST_FIXTURE"
+            joblib.dump(tree_explainer, shap_path)
+            print(f"✓ Created test fixture: {shap_path}")
+        except Exception as e:
+            print(f"Warning: Could not generate shap_explainer test fixture: {e}")
 
     print("✓ All synthetic test fixtures created successfully.")
     return True

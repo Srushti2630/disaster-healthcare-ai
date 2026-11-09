@@ -31,12 +31,19 @@ async def lifespan(app: FastAPI):
         app.state.pop_df = pd.read_csv(settings.PROCESSED_DIR / "district_population.csv")
         app.state.cap_df = pd.read_csv(settings.PROCESSED_DIR / "district_capacity.csv")
         app.state.fac_df = pd.read_csv(settings.PROCESSED_DIR / "district_facilities.csv")
+        cleaned_fac_file = settings.PROCESSED_DIR / "cleaned_facilities.csv"
+        if cleaned_fac_file.exists():
+            app.state.cleaned_facilities_df = pd.read_csv(cleaned_fac_file)
+            logger.info(f"Loaded cleaned hospital facilities ({len(app.state.cleaned_facilities_df)} facilities).")
+        else:
+            app.state.cleaned_facilities_df = pd.DataFrame()
         logger.info(f"Loaded district population ({len(app.state.pop_df)} rows), capacity, and facilities.")
     except Exception as e:
         logger.error(f"Error loading processed CSV data: {e}")
         app.state.pop_df = pd.DataFrame()
         app.state.cap_df = pd.DataFrame()
         app.state.fac_df = pd.DataFrame()
+        app.state.cleaned_facilities_df = pd.DataFrame()
 
     # 2. Load GeoJSON Boundaries and Normalise
     try:
@@ -81,19 +88,33 @@ async def lifespan(app: FastAPI):
         else:
             app.state.baselines_df = pd.DataFrame()
 
-        logger.info("Loaded reports: metrics.json, historical_backtest.csv, baseline_comparison.csv.")
+        alloc_summary_file = settings.REPORTS_DIR / "allocation_summary.json"
+        if alloc_summary_file.exists():
+            with open(alloc_summary_file, "r", encoding="utf-8") as f:
+                app.state.allocation_summary = json.load(f)
+        else:
+            app.state.allocation_summary = {}
+
+        logger.info("Loaded reports: metrics.json, historical_backtest.csv, baseline_comparison.csv, allocation_summary.json.")
     except Exception as e:
         logger.error(f"Error loading reports: {e}")
         app.state.metrics_data = {}
         app.state.backtest_df = pd.DataFrame()
         app.state.baselines_df = pd.DataFrame()
+        app.state.allocation_summary = {}
 
     # 4. Load Models & Pipelines
     try:
         impact_path = settings.MODELS_DIR / "impact_models.joblib"
         if impact_path.exists():
-            app.state.impact_bundle = joblib.load(impact_path)
-            logger.info("Loaded impact models and CQR bundle.")
+            imp_bundle = joblib.load(impact_path)
+            # Model schema validation
+            if isinstance(imp_bundle, dict) and "preprocessor" in imp_bundle and "impact_model" in imp_bundle:
+                app.state.impact_bundle = imp_bundle
+                logger.info("Loaded impact models and CQR bundle.")
+            else:
+                logger.error("impact_models.joblib missing required 'preprocessor' or 'impact_model' keys.")
+                app.state.impact_bundle = None
         else:
             app.state.impact_bundle = None
             logger.warning(f"Impact models not found at {impact_path}")
@@ -104,10 +125,28 @@ async def lifespan(app: FastAPI):
             logger.info("Loaded surrogate shortage classifier.")
         else:
             app.state.surrogate_bundle = None
+
+        shap_path = settings.MODELS_DIR / "shap_explainer.joblib"
+        if shap_path.exists():
+            app.state.shap_explainer = joblib.load(shap_path)
+            logger.info("Loaded Tree-SHAP explainer for XGBoost impact model.")
+        else:
+            app.state.shap_explainer = None
+
+        # DEF-01 Safety Check: Refuse synthetic test fixtures in production / staging
+        if settings.ENVIRONMENT in ("production", "staging"):
+            for m_name, bundle_obj in [("impact_bundle", app.state.impact_bundle), ("surrogate_bundle", app.state.surrogate_bundle)]:
+                if bundle_obj is not None:
+                    is_synth = getattr(bundle_obj, "is_synthetic", False) if not isinstance(bundle_obj, dict) else bundle_obj.get("is_synthetic", False)
+                    if is_synth:
+                        logger.critical(f"FATAL: Synthetic test fixture detected in production environment for {m_name}. Refusing to load.")
+                        app.state.ready = False
+                        raise RuntimeError(f"Production environment rejects synthetic model fixture for {m_name}.")
     except Exception as e:
         logger.error(f"Error loading ML models: {e}")
         app.state.impact_bundle = None
         app.state.surrogate_bundle = None
+        app.state.shap_explainer = None
 
     # 5. Distance Matrix
     try:

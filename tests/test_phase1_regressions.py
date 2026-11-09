@@ -206,3 +206,148 @@ def test_api_mandatory_dependencies_importable():
     assert sqlalchemy.__version__ is not None
     assert pydantic.__version__ is not None
     assert jwt.__version__ is not None
+
+# -----------------------------------------------------------------------------
+# Correction Pass Verification: Facilities, Baselines, SHAP Fidelity & Model Safety
+# -----------------------------------------------------------------------------
+def test_facility_loading_and_endpoint_accuracy():
+    """Verify 4,767 facility count from processed data and distinction from 4,458 historical subset."""
+    import pandas as pd
+    from fastapi.testclient import TestClient
+    from api.main import app
+
+    clean_file = PROJECT_ROOT / "data" / "processed" / "cleaned_facilities.csv"
+    fac_file = PROJECT_ROOT / "data" / "processed" / "district_facilities.csv"
+
+    assert clean_file.exists(), "cleaned_facilities.csv must exist"
+    assert fac_file.exists(), "district_facilities.csv must exist"
+
+    df_clean = pd.read_csv(clean_file)
+    df_fac = pd.read_csv(fac_file)
+
+    # 4,767 is authoritative cleaned facilities; 4,458 was historical active clinics subset
+    assert len(df_clean) == 4767
+    assert df_fac["total_facilities"].sum() == 4767
+    assert len(df_clean) != 4458
+
+    with TestClient(app) as client:
+        res = client.get("/api/districts")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["total_facilities"] == 4767
+        assert data["total_cleaned_facilities"] == 4767
+        sum_district_fac = sum(d["facilities"]["total_facilities"] for d in data["districts"])
+        assert sum_district_fac == 4767
+
+def test_baseline_endpoint_scenario_truthfulness():
+    """Verify baseline endpoint truthfully reports 20 evaluated scenarios from allocation_summary.json."""
+    import json
+    from fastapi.testclient import TestClient
+    from api.main import app
+
+    alloc_summary_file = PROJECT_ROOT / "reports" / "allocation_summary.json"
+    assert alloc_summary_file.exists(), "reports/allocation_summary.json must exist"
+
+    with open(alloc_summary_file, "r", encoding="utf-8") as f:
+        alloc_data = json.load(f)
+
+    actual_scenarios = len(alloc_data.get("scenario_demand_stock", []))
+    assert actual_scenarios == 20, "Authoritative allocation_summary.json contains 20 scenarios"
+
+    with TestClient(app) as client:
+        res = client.get("/api/baselines")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["scenarios_evaluated"] == 20
+        assert len(data["results"]) == 5
+        assert len(data["restricted_results"]) == 5
+
+def test_explanation_endpoint_xgb_tree_shap_fidelity_and_safety():
+    """Verify explanation endpoint uses exact Tree-SHAP for XGBoost and does not fit Ridge models."""
+    from fastapi.testclient import TestClient
+    from api.main import app
+
+    with TestClient(app) as client:
+        res = client.post("/api/explain", json={
+            "hazard": "Flood",
+            "magnitude": 6.5,
+            "month": 8,
+            "state": "Maharashtra"
+        })
+        assert res.status_code == 200
+        data = res.json()
+
+        # Must NOT return fabricated Ridge explanation
+        assert "Ridge" not in data["model_name"]
+        assert "XGBoost" in data["model_name"] or "Tree-SHAP" in data["model_name"]
+
+        # Fidelity test: sum of all contributions + base value == predicted_log (within floating point tol)
+        contrib_sum = sum(c["contribution"] for c in data["all_contributions"])
+        reconstructed_log = data["base_value"] + contrib_sum
+        assert abs(data["predicted_log"] - reconstructed_log) < 1e-3
+
+def test_explanation_missing_artifact_controlled_response():
+    """Verify missing explanation artifact produces controlled 503 without on-the-fly model training."""
+    from fastapi import HTTPException
+    from api.services import explain_prediction_service
+    from api.schemas import ImpactPredictionRequest
+
+    class MockState:
+        impact_bundle = {
+            "preprocessor": None,
+            "impact_model": None
+        }
+        shap_explainer = None
+
+    req = ImpactPredictionRequest(hazard="Flood", magnitude=5.0, month=7)
+
+    # Calling with missing preprocessor/model must raise HTTPException 503, never train on disk
+    with pytest.raises(HTTPException) as excinfo:
+        explain_prediction_service(MockState(), req)
+    assert excinfo.value.status_code == 503
+    assert "not loaded" in str(excinfo.value.detail).lower()
+
+def test_production_mode_refuses_synthetic_fixtures():
+    """Verify that production mode strictly refuses synthetic model fixtures."""
+    from fastapi import HTTPException
+    from api.config import settings
+    from api.services import predict_impact_service
+    from api.schemas import ImpactPredictionRequest
+
+    orig_env = settings.ENVIRONMENT
+    try:
+        settings.ENVIRONMENT = "production"
+        class MockSyntheticState:
+            impact_bundle = {
+                "preprocessor": None,
+                "impact_model": None,
+                "cqr_model": None,
+                "is_synthetic": True,
+                "provenance": "SYNTHETIC_TEST_FIXTURE"
+            }
+
+        req = ImpactPredictionRequest(hazard="Flood", magnitude=5.0, month=7)
+        with pytest.raises(HTTPException) as excinfo:
+            predict_impact_service(MockSyntheticState(), req)
+        assert excinfo.value.status_code == 503
+        assert "refuses synthetic" in str(excinfo.value.detail).lower()
+    finally:
+        settings.ENVIRONMENT = orig_env
+
+def test_readiness_probe_complete_artifact_inventory():
+    """Verify readiness probe checks all critical components and model artifacts."""
+    from fastapi.testclient import TestClient
+    from api.main import app
+
+    with TestClient(app) as client:
+        res = client.get("/ready")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["status"] == "ready"
+        artifacts = data["artifacts_loaded"]
+        assert "districts_data" in artifacts and artifacts["districts_data"] is True
+        assert "geojson" in artifacts and artifacts["geojson"] is True
+        assert "impact_model" in artifacts and artifacts["impact_model"] is True
+        assert "surrogate_classifier" in artifacts and artifacts["surrogate_classifier"] is True
+        assert "shap_explainer" in artifacts and artifacts["shap_explainer"] is True
+        assert "distance_matrix" in artifacts and artifacts["distance_matrix"] is True

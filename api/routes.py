@@ -45,6 +45,8 @@ async def readiness_check(request: Request) -> Dict[str, Any]:
     pop_loaded = hasattr(request.app.state, "pop_df") and not request.app.state.pop_df.empty
     geojson_loaded = hasattr(request.app.state, "geojson") and len(request.app.state.geojson.get("features", [])) > 0
     models_loaded = hasattr(request.app.state, "impact_bundle") and request.app.state.impact_bundle is not None
+    surrogate_loaded = hasattr(request.app.state, "surrogate_bundle") and request.app.state.surrogate_bundle is not None
+    shap_loaded = hasattr(request.app.state, "shap_explainer") and request.app.state.shap_explainer is not None
     dist_loaded = hasattr(request.app.state, "distances_df") and request.app.state.distances_df is not None
 
     if not is_ready or not (pop_loaded and dist_loaded):
@@ -59,6 +61,8 @@ async def readiness_check(request: Request) -> Dict[str, Any]:
             "districts_data": pop_loaded,
             "geojson": geojson_loaded,
             "impact_model": models_loaded,
+            "surrogate_classifier": surrogate_loaded,
+            "shap_explainer": shap_loaded,
             "distance_matrix": dist_loaded
         }
     }

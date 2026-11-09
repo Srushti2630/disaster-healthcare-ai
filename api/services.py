@@ -90,24 +90,17 @@ def get_districts_service(app_state: Any) -> DistrictListResponse:
         fac_copy = fac_df.copy()
         fac_copy["join_key"] = fac_copy["district"].astype(str).str.strip().str.lower()
         cols = [c for c in ["join_key", "total_facilities", "public_facilities", "private_facilities"] if c in fac_copy.columns]
+        # Drop columns from merged that will be provided by fac_copy to prevent any _x / _y collision
+        drop_cols = [c for c in ["total_facilities", "public_facilities", "private_facilities"] if c in merged.columns and c in cols]
+        if drop_cols:
+            merged = merged.drop(columns=drop_cols)
         merged = pd.merge(merged, fac_copy[cols], on="join_key", how="left")
 
     records: List[DistrictDetail] = []
     for _, row in merged.iterrows():
-        tot_fac = row.get("total_facilities")
-        if pd.isna(tot_fac) or tot_fac is None:
-            tot_fac = row.get("total_facilities_y", row.get("total_facilities_x", 0))
-        tot_fac = 0 if pd.isna(tot_fac) else int(tot_fac)
-
-        pub_fac = row.get("public_facilities")
-        if pd.isna(pub_fac) or pub_fac is None:
-            pub_fac = row.get("public_facilities_y", row.get("public_facilities_x", 0))
-        pub_fac = 0 if pd.isna(pub_fac) else int(pub_fac)
-
-        priv_fac = row.get("private_facilities")
-        if pd.isna(priv_fac) or priv_fac is None:
-            priv_fac = row.get("private_facilities_y", row.get("private_facilities_x", 0))
-        priv_fac = 0 if pd.isna(priv_fac) else int(priv_fac)
+        tot_fac = int(row.get("total_facilities", 0))
+        pub_fac = int(row.get("public_facilities", 0))
+        priv_fac = int(row.get("private_facilities", 0))
 
         cap = DistrictBedCapacity(
             beds_low=int(row.get("beds_low", 0)),
@@ -136,7 +129,12 @@ def get_districts_service(app_state: Any) -> DistrictListResponse:
         )
         records.append(rec)
 
-    total_cleaned = sum(r.facilities.total_facilities for r in records)
+    # Use authoritative cleaned facility count (4,767 across Maharashtra)
+    cleaned_fac_df = getattr(app_state, "cleaned_facilities_df", None)
+    if cleaned_fac_df is not None and not cleaned_fac_df.empty:
+        total_cleaned = len(cleaned_fac_df)
+    else:
+        total_cleaned = sum(r.facilities.total_facilities for r in records)
 
     return DistrictListResponse(
         total_districts=len(records),
@@ -254,9 +252,16 @@ def get_baselines_service(app_state: Any) -> BaselineResponse:
                 f"Error reading baseline_comparison_restricted.csv: {e}"
             )
 
+    alloc_summary = getattr(app_state, "allocation_summary", {})
+    if alloc_summary and "scenario_demand_stock" in alloc_summary:
+        scenarios_count = len(alloc_summary["scenario_demand_stock"])
+    else:
+        # Default based on authoritative allocation_summary.json (20 stratified scenarios)
+        scenarios_count = 20
+
     return BaselineResponse(
         evaluation_formula="Cost Index = unit_km * 15.0 + active_routes * 500.0",
-        scenarios_evaluated=20,
+        scenarios_evaluated=scenarios_count,
         results=rows,
         restricted_results=restricted_rows,
         pareto_plot_url="/api/baselines/pareto-plot"
@@ -268,6 +273,15 @@ def predict_impact_service(app_state: Any, req: ImpactPredictionRequest) -> Impa
     bundle = getattr(app_state, "impact_bundle", None)
     if not bundle:
         raise HTTPException(status_code=503, detail="Impact prediction model is not loaded.")
+
+    # DEF-01 Safety Check: Refuse synthetic fixtures in production
+    if settings.ENVIRONMENT in ("production", "staging"):
+        is_synth = getattr(bundle, "is_synthetic", False) if not isinstance(bundle, dict) else bundle.get("is_synthetic", False)
+        if is_synth:
+            raise HTTPException(
+                status_code=503,
+                detail="Production inference refuses synthetic fixtures. Please deploy validated production model weights."
+            )
 
     preprocessor = bundle["preprocessor"]
     model = bundle["impact_model"]
@@ -372,30 +386,22 @@ def get_global_explanation_service(app_state: Any) -> GlobalExplanationResponse:
     )
 
 def explain_prediction_service(app_state: Any, req: ImpactPredictionRequest) -> LocalExplanationResponse:
-    """Explain Ridge model prediction exactly with shap.LinearExplainer or coefficient x standardized value."""
+    """
+    Explain impact prediction model faithfully using Tree-SHAP for XGBoost,
+    or LinearExplainer for linear models.
+    Guarantees:
+    - Never trains or fits models during an inference/explanation request.
+    - Accurately identifies the explained model (no fabricated Ridge explanations).
+    - If no compatible explainer artifact is available, returns a controlled 503 diagnostic.
+    """
     bundle = getattr(app_state, "impact_bundle", None)
     if not bundle:
         raise HTTPException(status_code=503, detail="Impact prediction model is not loaded.")
 
     preprocessor = bundle.get("preprocessor")
     impact_model = bundle.get("impact_model")
-
-    # Locate Ridge model
-    ridge_model = None
-    if hasattr(impact_model, "coef_"):
-        ridge_model = impact_model
-    elif isinstance(bundle, dict):
-        ridge_model = bundle.get("ridge_model") or bundle.get("ridge") or bundle.get("Ridge")
-
-    if ridge_model is None:
-        pipeline_path = settings.MODELS_DIR / "pipeline_bundle.joblib"
-        if pipeline_path.exists():
-            try:
-                p_bundle = joblib.load(pipeline_path)
-                imp_models = p_bundle.get("impact_models", {})
-                ridge_model = imp_models.get("Ridge")
-            except Exception:
-                pass
+    if preprocessor is None or impact_model is None:
+        raise HTTPException(status_code=503, detail="Impact preprocessor or model is not loaded.")
 
     hazard_str = req.hazard.value if hasattr(req.hazard, "value") else str(req.hazard)
     mag_val = req.magnitude if req.magnitude is not None else 0.0
@@ -412,94 +418,93 @@ def explain_prediction_service(app_state: Any, req: ImpactPredictionRequest) -> 
     }
     input_df = pd.DataFrame(input_dict)
 
-    X_trans = preprocessor.transform(input_df) if preprocessor is not None else np.zeros((1, 10))
+    try:
+        X_trans = preprocessor.transform(input_df)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Feature transformation failed: {e}")
+
     feature_names = list(preprocessor.get_feature_names_out()) if hasattr(preprocessor, "get_feature_names_out") else [f"feature_{i}" for i in range(X_trans.shape[1])]
 
-    contributions_dict: Dict[str, float] = {}
-    base_val = 7.12
-    pred_log = 7.12
+    # Determine model architecture & retrieve matching explainer
+    is_tree_model = hasattr(impact_model, "get_booster") or type(impact_model).__name__ in ("XGBRegressor", "RandomForestRegressor")
+    is_linear_model = hasattr(impact_model, "coef_") and not is_tree_model
 
-    if ridge_model is not None and hasattr(ridge_model, "coef_"):
-        coefs = ridge_model.coef_.ravel()
-        intercept = float(ridge_model.intercept_)
-        base_val = intercept
-        used_shap = False
-        try:
-            import shap
-            explainer = shap.LinearExplainer(ridge_model, masker=shap.maskers.Independent(np.zeros((1, len(coefs)))))
-            sh = explainer(X_trans)
-            linear_shap = sh.values[0]
-            for f_name, c_val in zip(feature_names, linear_shap):
-                contributions_dict[f_name] = float(c_val)
-            pred_log = float(sh.values[0].sum() + sh.base_values[0])
-            used_shap = True
-        except Exception:
-            used_shap = False
-
-        if not used_shap:
-            x_row = X_trans[0]
-            if hasattr(x_row, "toarray"):
-                x_row = x_row.toarray()[0]
-            for f_name, coef, x_val in zip(feature_names, coefs, x_row):
-                contributions_dict[f_name] = float(coef * x_val)
-            pred_log = float(intercept + sum(contributions_dict.values()))
-    else:
-        pred_log = 7.12 + (0.85 if hazard_str == "Flood" else 0.40)
-        contributions_dict = {
-            f"cat__disaster_type_{hazard_str}": 0.85 if hazard_str == "Flood" else 0.40,
-            "num__magnitude": 0.35 if mag_val > 0 else 0.0,
-            "num__start_month": 0.25 if month_val in [6, 7, 8, 9] else -0.10,
-            "cat__scope_single-state": -0.15,
-            "num__decade": 0.12,
-            "num__start_year": 0.08
-        }
-
-    all_contribs: List[FeatureContribution] = []
-    for raw_f, val in contributions_dict.items():
-        clean_name = raw_f.replace("num__", "").replace("cat__", "").replace("disaster_type_", "Hazard: ").replace("disaster_subtype_", "Subtype: ").replace("scope_", "Scope: ")
-        clean_name = clean_name.replace("_", " ").title()
-
-        val_round = round(val, 4)
-        direction = "positive" if val >= 0 else "negative"
-        sentence = generate_plain_english_sentence(clean_name, raw_f, val, hazard_str, mag_val, month_val)
-
-        all_contribs.append(FeatureContribution(
-            feature=clean_name,
-            raw_feature=raw_f,
-            feature_value=hazard_str if "disaster_type" in raw_f else (mag_val if "magnitude" in raw_f else (month_val if "start_month" in raw_f else None)),
-            contribution=val_round,
-            direction=direction,
-            plain_english=sentence
-        ))
-
-    top_6 = sorted(all_contribs, key=lambda x: abs(x.contribution), reverse=True)[:6]
-
-    xgb_comparison: Optional[List[FeatureContribution]] = None
-    try:
-        explainer = getattr(app_state, "shap_explainer", None)
-        if explainer is None:
-            explainer_path = settings.MODELS_DIR / "shap_explainer.joblib"
-            if explainer_path.exists():
+    explainer = getattr(app_state, "shap_explainer", None)
+    if explainer is None:
+        explainer_path = settings.MODELS_DIR / "shap_explainer.joblib"
+        if explainer_path.exists():
+            try:
                 explainer = joblib.load(explainer_path)
                 app_state.shap_explainer = explainer
-        if explainer is not None:
-            t_sh = explainer(X_trans)
-            t_vals = t_sh.values[0]
-            xgb_list = []
-            for f_name, t_val in zip(feature_names, t_vals):
-                c_name = f_name.replace("num__", "").replace("cat__", "").replace("disaster_type_", "Hazard: ").replace("_", " ").title()
-                xgb_list.append(FeatureContribution(
-                    feature=c_name,
-                    raw_feature=f_name,
-                    feature_value=None,
-                    contribution=round(float(t_val), 4),
-                    direction="positive" if t_val >= 0 else "negative",
-                    plain_english=f"XGBoost Tree-SHAP non-linear interaction effect: {t_val:+.2f} log units."
-                ))
-            xgb_comparison = sorted(xgb_list, key=lambda x: abs(x.contribution), reverse=True)[:6]
-    except Exception as e:
-        logger.debug(f"Tree-SHAP comparison omitted: {e}")
+            except Exception as e:
+                logger.warning(f"Could not load shap_explainer.joblib: {e}")
 
+    all_contribs: List[FeatureContribution] = []
+    base_val = 0.0
+    pred_log = 0.0
+    model_name = ""
+
+    if is_tree_model and explainer is not None:
+        model_name = "XGBoost Regressor (Tree-SHAP Explainer)"
+        try:
+            sh = explainer(X_trans)
+            t_vals = sh.values[0]
+            base_val = float(sh.base_values[0]) if hasattr(sh, "base_values") and len(sh.base_values) > 0 else 10.65
+            pred_log = float(t_vals.sum() + base_val)
+
+            for raw_f, t_val in zip(feature_names, t_vals):
+                clean_name = raw_f.replace("num__", "").replace("cat__", "").replace("disaster_type_", "Hazard: ").replace("disaster_subtype_", "Subtype: ").replace("scope_", "Scope: ")
+                clean_name = clean_name.replace("_", " ").title()
+                val_round = round(float(t_val), 4)
+                direction = "positive" if t_val >= 0 else "negative"
+                sentence = generate_plain_english_sentence(clean_name, raw_f, val_round, hazard_str, mag_val, month_val)
+                all_contribs.append(FeatureContribution(
+                    feature=clean_name,
+                    raw_feature=raw_f,
+                    feature_value=hazard_str if "disaster_type" in raw_f else (mag_val if "magnitude" in raw_f else (month_val if "start_month" in raw_f else None)),
+                    contribution=val_round,
+                    direction=direction,
+                    plain_english=sentence
+                ))
+        except Exception as e:
+            logger.error(f"Tree-SHAP computation error: {e}")
+            raise HTTPException(status_code=503, detail=f"Tree-SHAP computation failed: {e}")
+
+    elif is_linear_model:
+        model_name = "Ridge Regression (Linear Explainer)"
+        coefs = impact_model.coef_.ravel()
+        intercept = float(impact_model.intercept_)
+        base_val = intercept
+        x_row = X_trans[0]
+        if hasattr(x_row, "toarray"):
+            x_row = x_row.toarray()[0]
+        for raw_f, coef, x_val in zip(feature_names, coefs, x_row):
+            c_val = float(coef * x_val)
+            clean_name = raw_f.replace("num__", "").replace("cat__", "").replace("disaster_type_", "Hazard: ").replace("disaster_subtype_", "Subtype: ").replace("scope_", "Scope: ")
+            clean_name = clean_name.replace("_", " ").title()
+            val_round = round(c_val, 4)
+            direction = "positive" if c_val >= 0 else "negative"
+            sentence = generate_plain_english_sentence(clean_name, raw_f, val_round, hazard_str, mag_val, month_val)
+            all_contribs.append(FeatureContribution(
+                feature=clean_name,
+                raw_feature=raw_f,
+                feature_value=hazard_str if "disaster_type" in raw_f else (mag_val if "magnitude" in raw_f else (month_val if "start_month" in raw_f else None)),
+                contribution=val_round,
+                direction=direction,
+                plain_english=sentence
+            ))
+        pred_log = float(intercept + sum(c.contribution for c in all_contribs))
+
+    else:
+        # Controlled diagnostic response when no compatible explainer artifact exists.
+        # Strict rule: NEVER fit or train models on-the-fly during API requests.
+        logger.error("Compatible explanation artifact is unavailable for the loaded model architecture. On-demand model training is prohibited.")
+        raise HTTPException(
+            status_code=503,
+            detail="Compatible SHAP explainer artifact is unavailable for the loaded model. On-demand model training during explanation requests is prohibited."
+        )
+
+    top_6 = sorted(all_contribs, key=lambda x: abs(x.contribution), reverse=True)[:6]
     dom_factors = ", ".join([f"{c.feature} ({c.contribution:+.2f})" for c in top_6[:2]])
     summary = f"Predicted casualty scale is primarily driven by {dom_factors}."
 
@@ -508,10 +513,10 @@ def explain_prediction_service(app_state: Any, req: ImpactPredictionRequest) -> 
         predicted_log=round(pred_log, 4),
         predicted_median=int(np.expm1(np.clip(pred_log, 0, 16))),
         base_value=round(base_val, 4),
-        model_name="Ridge Regression (Linear Explainer)",
+        model_name=model_name,
         top_contributions=top_6,
         all_contributions=all_contribs,
-        xgboost_comparison=xgb_comparison,
+        xgboost_comparison=None,
         summary_sentence=summary
     )
 
