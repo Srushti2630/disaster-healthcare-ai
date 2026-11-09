@@ -42,6 +42,7 @@ from src.optimise import (
     DEFAULT_SAFETY_RESERVE_RATIO,
     DEFAULT_EMERGENCY_STOCK_BUFFER_RATIO,
     MEDICINES,
+    MEDICINE_CRITICALITY,
     PERISHABLE_MAX_KM
 )
 
@@ -488,4 +489,66 @@ def test_lexicographic_stage2_cannot_worsen_stage1_unmet_demand():
 
     eval_res = evaluate_allocation_plan(plan_df, demands, stocks, {}, dists)
     assert eval_res["primary_objective_unmet"] <= summary["optimal_weighted_unmet"] + 1e-3
+
+
+def test_lexicographic_stage2_selects_cheaper_solution_among_stage1_optima():
+    """
+    Test case with multiple Stage 1 optimal solutions where Stage 2 selects the lower-cost solution.
+    Recipient needs 50 units of ORS.
+    Two donors (DonorNear at 20 km, DonorFar at 80 km) each have 100 units of ORS.
+    Both donors can fully satisfy Recipient with 0 unmet demand (both Stage 1 optimal).
+    Stage 2 MUST select DonorNear to minimize transport cost.
+    """
+    demands = {"DonorNear": {"ors": 0.0}, "DonorFar": {"ors": 0.0}, "Recipient": {"ors": 50.0}}
+    stocks = {"DonorNear": {"ors": 100.0}, "DonorFar": {"ors": 100.0}, "Recipient": {"ors": 0.0}}
+    dists = pd.DataFrame([
+        [0.0, 100.0, 20.0],
+        [100.0, 0.0, 80.0],
+        [20.0, 80.0, 0.0]
+    ], index=["DonorNear", "DonorFar", "Recipient"], columns=["DonorNear", "DonorFar", "Recipient"])
+
+    plan_df, summary = solve_resource_allocation(demands, stocks, distances_df=dists, lexicographic=True)
+    assert summary["stage1_status"] == "OPTIMAL"
+    assert summary["solve_status"] == "OPTIMAL"
+    assert summary["unmet_demand_after"] == 0.0
+
+    # DonorNear must be the chosen source
+    assert len(plan_df) == 1
+    assert plan_df.iloc[0]["source_region"] == "DonorNear"
+    assert plan_df.iloc[0]["dest_region"] == "Recipient"
+    assert plan_df.iloc[0]["quantity"] == 50
+    # Expected cost: 50 * 20 * 15 + 500 = 15,500 (vs 50 * 80 * 15 + 500 = 60,500 for DonorFar)
+    assert summary["total_transport_cost"] == 15500.0
+
+
+def test_lexicographic_independent_primary_objective_reconciliation():
+    """Independently calculate final allocation's weighted unmet demand and verify against Stage 1 optimum."""
+    demands = {
+        "D1": {"antibiotics": 200.0, "blood_units": 50.0},
+        "D2": {"antibiotics": 0.0, "blood_units": 0.0}
+    }
+    stocks = {
+        "D1": {"antibiotics": 50.0, "blood_units": 10.0},
+        "D2": {"antibiotics": 500.0, "blood_units": 100.0}
+    }
+    dists = pd.DataFrame([[0.0, 60.0], [60.0, 0.0]], index=["D1", "D2"], columns=["D1", "D2"])
+
+    plan_df, summary = solve_resource_allocation(demands, stocks, distances_df=dists, lexicographic=True)
+    assert summary["stage1_status"] == "OPTIMAL"
+
+    # Recompute primary objective manually from plan
+    transfers_in = plan_df.groupby(["dest_region", "medicine"])["quantity"].sum().to_dict()
+    manual_weighted_unmet = 0.0
+    for d in demands:
+        for m in MEDICINES:
+            dem = float(demands.get(d, {}).get(m, 0.0))
+            stk = float(stocks.get(d, {}).get(m, 0.0))
+            tin = float(transfers_in.get((d, m), 0.0))
+            u = max(0.0, dem - (stk + tin))
+            manual_weighted_unmet += u * MEDICINE_CRITICALITY.get(m, 1.0)
+
+    eval_res = evaluate_allocation_plan(plan_df, demands, stocks, {}, dists)
+    assert abs(eval_res["primary_objective_unmet"] - manual_weighted_unmet) < 1e-5
+    assert abs(eval_res["primary_objective_unmet"] - summary["optimal_weighted_unmet"]) < 1e-4
+
 

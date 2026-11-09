@@ -191,8 +191,29 @@ def solve_resource_allocation(
         obj1.SetMinimization()
 
         stage1_status = solver.Solve()
-        if stage1_status not in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
-            raise RuntimeError(f"Stage 1 of lexicographic optimization failed with status {stage1_status}")
+        if stage1_status != pywraplp.Solver.OPTIMAL:
+            # If Stage 1 cannot establish global optimality, halt without proceeding to Stage 2
+            solve_duration_ms = (time.time() - start_time) * 1000
+            status_str = "FEASIBLE" if stage1_status == pywraplp.Solver.FEASIBLE else "INFEASIBLE"
+            summary = {
+                "solve_status": status_str,
+                "stage1_status": status_str,
+                "solve_time_ms": float(round(solve_duration_ms, 2)),
+                "total_transferred_units": 0,
+                "total_transport_cost": 0.0,
+                "unmet_demand_before": 0.0,
+                "unmet_demand_after": 0.0,
+                "demand_reduction_pct": 0.0,
+                "min_coverage_before": 0.0,
+                "min_coverage_after": 0.0,
+                "active_routes_count": 0,
+                "fairness_theta": 0.0,
+                "eligible_fairness_pairs": len(eligible_pairs),
+                "lexicographic_optimization": True,
+                "optimal_weighted_unmet": None
+            }
+            cols = ["source_region", "dest_region", "medicine", "quantity", "distance_km", "cost", "priority", "confidence"]
+            return pd.DataFrame(columns=cols), summary
 
         optimal_weighted_unmet = float(obj1.Value())
 
@@ -221,6 +242,29 @@ def solve_resource_allocation(
 
         obj2.SetMinimization()
         status = solver.Solve()
+
+        if status not in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
+            # If Stage 2 fails, do not return unoptimized plan
+            solve_duration_ms = (time.time() - start_time) * 1000
+            summary = {
+                "solve_status": "INFEASIBLE",
+                "stage1_status": "OPTIMAL",
+                "solve_time_ms": float(round(solve_duration_ms, 2)),
+                "total_transferred_units": 0,
+                "total_transport_cost": 0.0,
+                "unmet_demand_before": 0.0,
+                "unmet_demand_after": 0.0,
+                "demand_reduction_pct": 0.0,
+                "min_coverage_before": 0.0,
+                "min_coverage_after": 0.0,
+                "active_routes_count": 0,
+                "fairness_theta": 0.0,
+                "eligible_fairness_pairs": len(eligible_pairs),
+                "lexicographic_optimization": True,
+                "optimal_weighted_unmet": optimal_weighted_unmet
+            }
+            cols = ["source_region", "dest_region", "medicine", "quantity", "distance_km", "cost", "priority", "confidence"]
+            return pd.DataFrame(columns=cols), summary
 
     else:
         # Standard weighted scalarized optimization
