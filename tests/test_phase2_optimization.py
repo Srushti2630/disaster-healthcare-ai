@@ -847,5 +847,135 @@ def test_adversarial_7_independent_recalculation_final_primary_objective():
     assert abs(recalculated_weighted_unmet - summary["optimal_weighted_unmet"]) <= 1e-4
 
 
+# ==============================================================================
+# PART 7: INDEPENDENT ALLOCATION-BALANCE AUDIT & POST-SOLVE GUARD TESTS
+# ==============================================================================
+
+def test_independent_reconstruction_agrees_with_solver_objective():
+    """
+    Verify that independently reconstructing actual unmet demand directly from
+    physical shipments x[i, j, m], demand, and initial stock:
+        actual_unmet[j, m] = max(0, demand[j, m] - (stock[j, m] + inbound[j, m] - outbound[j, m]))
+    agrees with the solver's reported primary objective within numerical tolerance.
+    """
+    demands = {
+        "D1": {"ors": 250.5, "antibiotics": 80.2},
+        "D2": {"ors": 10.0, "antibiotics": 5.0}
+    }
+    stocks = {
+        "D1": {"ors": 50.0, "antibiotics": 20.0},
+        "D2": {"ors": 400.0, "antibiotics": 200.0}
+    }
+    dists = pd.DataFrame([[0.0, 75.0], [75.0, 0.0]], index=["D1", "D2"], columns=["D1", "D2"])
+
+    plan_df, summary = solve_resource_allocation(demands, stocks, distances_df=dists, lexicographic=True)
+    assert summary["solve_status"] in ["OPTIMAL", "FEASIBLE"]
+
+    # Reconstruct balance from actual shipments
+    reconstructed_unmet = 0.0
+    for j in demands:
+        for m in ["ors", "antibiotics"]:
+            dem = float(demands[j][m])
+            stk = float(stocks[j][m])
+            inbound = float(plan_df[(plan_df["dest_region"] == j) & (plan_df["medicine"] == m)]["quantity"].sum())
+            outbound = float(plan_df[(plan_df["source_region"] == j) & (plan_df["medicine"] == m)]["quantity"].sum())
+            final_stk = stk + inbound - outbound
+            u = max(0.0, dem - final_stk)
+            reconstructed_unmet += u * MEDICINE_CRITICALITY[m]
+
+    opt_val = summary["optimal_weighted_unmet"]
+    audit_tol = max(1e-5, 1e-6 * opt_val)
+    assert abs(reconstructed_unmet - opt_val) <= audit_tol
+    assert abs(summary["reconstructed_weighted_unmet"] - reconstructed_unmet) <= 1e-4
+
+
+def test_inconsistent_slack_blocked_by_allocation_balance_guard():
+    """
+    Verify that an allocation plan cannot pass verification if physical shipments
+    do not satisfy the Stage 1 optimum, even if internal slack variables were zero.
+    Directly tests the necessity of Method D's physical shipment reconstruction.
+    """
+    demands = {"R": {"ors": 100.0}, "D": {"ors": 0.0}}
+    stocks = {"R": {"ors": 0.0}, "D": {"ors": 200.0}}
+    dists = pd.DataFrame([[0.0, 50.0], [50.0, 0.0]], index=["R", "D"], columns=["R", "D"])
+
+    plan_df, summary = solve_resource_allocation(demands, stocks, distances_df=dists, lexicographic=True)
+    assert summary["solve_status"] == "OPTIMAL"
+    assert summary["unmet_demand_after"] == 0.0
+
+    # If physical shipments were degraded by removing the transfer (quantity = 0),
+    # an independent balance audit must compute unmet = 100.0 (violating opt_val = 0.0)
+    fake_empty_plan = pd.DataFrame(columns=plan_df.columns)
+    eval_fake = evaluate_allocation_plan(fake_empty_plan, demands, stocks, {}, dists)
+    assert eval_fake["primary_objective_unmet"] == 100.0, "Evaluator failed to detect missing physical shipments"
+    assert eval_fake["primary_objective_unmet"] > summary["optimal_weighted_unmet"] + 1e-5
+
+
+def test_fractional_boundary_counterexample_strictly_blocked():
+    """
+    Verify the 133.00001 counterexample remains strictly blocked under the hardened formulation.
+    Must transfer 134 units (not 133), leaving exactly 0.0 unmet demand.
+    """
+    demands = {"R": {"ors": 133.00001}, "D": {"ors": 0.0}}
+    stocks = {"R": {"ors": 0.0}, "D": {"ors": 500.0}}
+    dists = pd.DataFrame([[0.0, 100.0], [100.0, 0.0]], index=["R", "D"], columns=["R", "D"])
+
+    plan_df, summary = solve_resource_allocation(demands, stocks, distances_df=dists, lexicographic=True)
+    assert summary["solve_status"] == "OPTIMAL"
+    assert summary["total_transferred_units"] == 134
+    assert summary["unmet_demand_after"] == 0.0
+    assert summary["optimal_weighted_unmet"] == 0.0
+    assert summary["reconstructed_weighted_unmet"] == 0.0
+
+
+def test_multiple_stage1_optima_secondary_cost_selection_unimpaired():
+    """
+    Verify that when multiple Stage 1 optimal solutions exist (both achieving zero unmet demand),
+    Stage 2 correctly selects the cheaper donor without degrading the primary objective.
+    """
+    demands = {"Near": {"ors": 0.0}, "Far": {"ors": 0.0}, "Recipient": {"ors": 60.0}}
+    stocks = {"Near": {"ors": 100.0}, "Far": {"ors": 100.0}, "Recipient": {"ors": 0.0}}
+    dists = pd.DataFrame([
+        [0.0, 100.0, 25.0],
+        [100.0, 0.0, 90.0],
+        [25.0, 90.0, 0.0]
+    ], index=["Near", "Far", "Recipient"], columns=["Near", "Far", "Recipient"])
+
+    plan_df, summary = solve_resource_allocation(demands, stocks, distances_df=dists, lexicographic=True)
+    assert summary["solve_status"] == "OPTIMAL"
+    assert summary["unmet_demand_after"] == 0.0
+    assert summary["optimal_weighted_unmet"] == 0.0
+    assert summary["reconstructed_weighted_unmet"] == 0.0
+
+    # Must select Near donor exclusively (25 km * 60 * 15 + 500 = 23,000)
+    assert len(plan_df) == 1
+    assert plan_df.iloc[0]["source_region"] == "Near"
+    assert plan_df.iloc[0]["quantity"] == 60
+    assert summary["total_transport_cost"] == 23000.0
+
+
+def test_solver_failure_safe_exit_and_invariance():
+    """
+    Verify that simulated Stage 1 or Stage 2 solver failure exits safely with empty plan,
+    zero units transferred, and correct status strings.
+    """
+    from unittest.mock import patch
+    from ortools.linear_solver import pywraplp
+
+    demands = {"D1": {"ors": 100.0}, "D2": {"ors": 0.0}}
+    stocks = {"D1": {"ors": 0.0}, "D2": {"ors": 200.0}}
+    dists = pd.DataFrame([[0.0, 50.0], [50.0, 0.0]], index=["D1", "D2"], columns=["D1", "D2"])
+
+    # Simulate Stage 1 non-optimal status
+    with patch.object(pywraplp.Solver, "Solve", return_value=pywraplp.Solver.INFEASIBLE):
+        plan_df, summary = solve_resource_allocation(demands, stocks, distances_df=dists, lexicographic=True)
+        assert summary["solve_status"] == "INFEASIBLE"
+        assert summary["stage1_status"] == "INFEASIBLE"
+        assert len(plan_df) == 0
+        assert summary["total_transferred_units"] == 0
+        assert summary["reconstructed_weighted_unmet"] is None
+
+
+
 
 
