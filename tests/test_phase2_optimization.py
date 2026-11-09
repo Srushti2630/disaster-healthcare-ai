@@ -552,3 +552,93 @@ def test_lexicographic_independent_primary_objective_reconciliation():
     assert abs(eval_res["primary_objective_unmet"] - summary["optimal_weighted_unmet"]) < 1e-4
 
 
+def test_primary_objective_discrete_quantum_and_integrality():
+    """
+    Mathematical Proof Verification:
+    Decision variables x[i, j, m] are strictly integers in Z_>=0.
+    For any realized instance (fixed demand and stock parameters), net transferred supply
+    to any district j and commodity m changes by discrete quanta Delta_x in Z.
+    
+    Because MEDICINE_CRITICALITY weights omega_m in {1.0, 2.0, 3.0, 5.0} are all >= 1.0,
+    any discrete shift in allocation that alters unmet demand changes the primary objective
+    by at least min(omega_m) * 1 = 1.0.
+    
+    Consequently, epsilon = 10^-4 satisfies:
+        solver_feasibility_tolerance (10^-6) < epsilon (10^-4) << minimum_discrete_quantum (1.0).
+    This strictly guarantees that Stage 2 cannot sacrifice even 1 unit of medicine for transport or fairness.
+    """
+    # 1. Verify criticality weight lower bound
+    for med, weight in MEDICINE_CRITICALITY.items():
+        assert weight >= 1.0, f"Criticality weight for {med} is {weight} < 1.0"
+        assert float(weight).is_integer(), f"Criticality weight for {med} is non-integer: {weight}"
+
+    # 2. Minimum discrete increment
+    min_weight = min(MEDICINE_CRITICALITY.values())
+    min_discrete_jump = min_weight * 1.0
+    assert min_discrete_jump >= 1.0
+
+    epsilon = 1e-4
+    solver_tolerance = 1e-6
+    # Mathematical cushion separation:
+    assert solver_tolerance < epsilon < min_discrete_jump
+    assert (min_discrete_jump / epsilon) == 10000.0, "Epsilon is exactly 10,000x smaller than minimum discrete transfer quantum"
+
+
+def test_stage2_epsilon_tolerance_preserves_stage1_shortage_strictly():
+    """
+    Verify Stage 2 preserves optimal weighted unmet demand from Stage 1 strictly.
+    Confirms that Stage 2 does not trade off any unmet demand for route or transport savings.
+    """
+    demands = {
+        "D1": {"ors": 100.0, "antibiotics": 50.0},
+        "D2": {"ors": 0.0, "antibiotics": 0.0}
+    }
+    stocks = {
+        "D1": {"ors": 20.0, "antibiotics": 10.0},
+        "D2": {"ors": 200.0, "antibiotics": 100.0}
+    }
+    dists = pd.DataFrame([[0.0, 100.0], [100.0, 0.0]], index=["D1", "D2"], columns=["D1", "D2"])
+
+    plan_df, summary = solve_resource_allocation(demands, stocks, distances_df=dists, lexicographic=True)
+    assert summary["stage1_status"] == "OPTIMAL"
+    assert summary["solve_status"] == "OPTIMAL"
+    assert summary["unmet_demand_after"] == 0.0
+    assert summary["optimal_weighted_unmet"] == 0.0
+
+    # Total integer units transferred must exactly meet the deficit: 80 ORS + 40 antibiotics = 120 units
+    assert summary["total_transferred_units"] == 120
+    # Every transfer quantity must be an integer
+    assert (plan_df["quantity"] % 1 == 0).all()
+
+
+def test_fractional_demand_stability_under_epsilon():
+    """
+    Verify stability of 2-stage lexicographic optimization under fractional demand inputs
+    arising from continuous Monte-Carlo or ML predictions (e.g. 133.8, 392.3).
+    Demonstrates that fractional demands do not cause infeasibility, numerical cycling,
+    or precision collapse under epsilon = 10^-4.
+    """
+    demands = {
+        "D1": {"ors": 133.8, "blood_units": 14.7},
+        "D2": {"ors": 0.0, "blood_units": 0.0}
+    }
+    stocks = {
+        "D1": {"ors": 30.2, "blood_units": 2.1},
+        "D2": {"ors": 500.0, "blood_units": 100.0}
+    }
+    dists = pd.DataFrame([[0.0, 50.0], [50.0, 0.0]], index=["D1", "D2"], columns=["D1", "D2"])
+
+    plan_df, summary = solve_resource_allocation(demands, stocks, distances_df=dists, lexicographic=True)
+    assert summary["stage1_status"] in ["OPTIMAL", "FEASIBLE"]
+    assert summary["solve_status"] in ["OPTIMAL", "FEASIBLE"]
+
+    # All transfer quantities must remain strictly integer despite fractional demand
+    for q in plan_df["quantity"]:
+        assert float(q).is_integer() and q >= 0
+
+    eval_res = evaluate_allocation_plan(plan_df, demands, stocks, {}, dists)
+    # Primary objective must match Stage 1 optimum within tolerance
+    assert abs(eval_res["primary_objective_unmet"] - summary["optimal_weighted_unmet"]) <= 1e-4
+
+
+

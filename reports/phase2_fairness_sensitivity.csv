@@ -1,0 +1,6 @@
+w_fairness,mean_transport_cost_inr,median_transport_cost_inr,mean_fairness_theta,min_fairness_theta,max_fairness_theta,active_scenarios_evaluated,cost_diff_from_w0_inr,scenario_allocation_shifts
+0.0,5818839772.86,1076360013.15,0.2222,0.0,1.0,18,0.0,0
+1000.0,5818839772.8,1076360013.15,0.5128,0.0166,1.0,18,-0.06,1
+10000.0,5818839772.8,1076360013.15,0.5128,0.0166,1.0,18,-0.06,1
+100000.0,5818839772.8,1076360013.15,0.5128,0.0166,1.0,18,-0.06,1
+1000000.0,5818839759.41,1076359892.69,0.5128,0.0166,1.0,18,-13.45,2
