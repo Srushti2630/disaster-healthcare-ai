@@ -26,75 +26,95 @@ $$\text{reconstructed\_weighted\_unmet} = \sum_{j \in \mathcal{D}} \sum_{m \in \
 
 This reconstructed metric matches the authoritative evaluator definition in `evaluate_allocation_plan()` and is completely independent of the solver's internal slack variables.
 
-### 3. Numerical Tolerance & Defensible Verification Threshold
+### 3. Mathematical Analysis & Refutation of the 1.0 Cap under Fractional Demand
 
-#### Scale-Dependent Audit Tolerance Investigation
-In the initial post-solve allocation-balance formulation, the verification threshold was defined as:
-$$\tau_{\text{audit}} = \max(10^{-5}, 10^{-6} \cdot Z_1^*)$$
-When evaluated on large-scale catastrophe scenarios such as Scenario 32 ($Z_1^* = 105,184,402.2$), this formula permitted an audit tolerance of:
-$$\tau_{\text{audit}} = 10^{-6} \times 105,184,402.2 \approx 105.18 \text{ weighted units}$$
+#### Flaw in the 1.0 Cap Assumption
+The previous argument asserted that an audit tolerance capped at $1.0$ weighted unit mathematically guarantees that no single discrete unit of medicine can ever be sacrificed, under the premise that $\min_m \omega_m = 1.0$ and shipments $x \in \mathbb{Z}_{\ge 0}$ are integers.
 
-**Clinical Refutation of Unbounded Relative Tolerance**:
-In disaster healthcare operations, every unit of medicine corresponds to immediate life-saving treatment for a disaster victim.
-- ORS / Analgesics have criticality weight $\omega = 1.0$. An allowance of 105.18 units permits sacrificing up to 105 units of rehydration salts or pain relief.
-- Whole blood has criticality weight $\omega = 5.0$. An allowance of 105.18 units permits sacrificing up to 21 units of emergency blood.
-In clinical disaster triage, **no positive primary deterioration can ever be clinically justified**. Allowing a solver to trade away discrete units of medicine to reduce secondary transportation costs or alter min-coverage fairness violates the core clinical mandate of lexicographic optimization.
+**This proof fails whenever clinical demand is fractional.**
 
-#### Formulation of Defensible Capped Audit Tolerance
-To strictly prevent the sacrifice of any discrete unit of medicine while accommodating floating-point conditioning across 175 continuous/integer variables on multi-million unit instances, the audit tolerance is defined as:
-$$\tau_{\text{audit}} = \min(1.0, \max(10^{-5}, 10^{-6} \cdot Z_1^*))$$
+#### The Fractional Demand Counterexample (Demand = 100.9)
+Consider a district $R$ requiring oral rehydration salts ($\omega_{\text{ors}} = 1.0$):
+- $\text{Demand} = 100.9 \text{ units}$
+- $\text{Initial Stock} = 0.0 \text{ units}$
+- Donor $D$ possesses $200 \text{ units}$.
 
-**Mathematical and Clinical Properties**:
-1. **Zero or Near-Zero Shortage ($Z_1^* < 1.0$)**:
-   $$\tau_{\text{audit}} = 10^{-5}$$
-   This strictly detects and blocks fractional under-shipments (such as the $10^{-5}$ and $10^{-4}$ counterexamples at fractional demand boundaries).
-2. **Large Shortage ($Z_1^* \ge 1.0$)**:
-   The tolerance is strictly capped at $1.0$ weighted unit:
-   $$\tau_{\text{audit}} \le 1.0$$
-   Because the minimum medicine criticality is $\min_m \omega_m = 1.0$ (ORS, Analgesics = 1.0; IV Fluids = 2.0; Antibiotics = 3.0; Blood = 5.0), and all physical shipments $x_{i, j, m} \in \mathbb{Z}_{\ge 0}$ are constrained to integers, **under-shipping even a single discrete unit of the least critical medicine would increase unmet demand by at least $1.0 \times 1 = 1.0$ weighted unit**.
-   Therefore, capping the tolerance at $1.0$ mathematically guarantees that **not even a single discrete unit of medicine can ever be sacrificed**, while simultaneously accommodating double-precision condition numbers and solver feasibility slacks ($< 1.0$) on multi-million unit instances.
+Two discrete integer shipment alternatives exist:
+1. **Transfer 101 units**: $\text{Final Stock} = 101.0 \implies \text{Unmet Demand} = \max(0.0, 100.9 - 101.0) = \mathbf{0.0}$.
+2. **Transfer 100 units**: $\text{Final Stock} = 100.0 \implies \text{Unmet Demand} = \max(0.0, 100.9 - 100.0) = \mathbf{0.9}$.
+
+The shipment difference is exactly **1 discrete integer unit** (100 vs. 101). However, the increase in unmet demand is only **0.9 weighted units**.
+Under any audit tolerance $\tau \ge 0.9$ (including $\tau = 1.0$):
+$$Z_{1, \text{phys}}^{(2)} = 0.9 \le Z_{1, \text{phys}}^{(1)} + 1.0 = 0.0 + 1.0$$
+The post-solve guard would **accept** the under-shipped plan! The solver is permitted to trade away an entire integer unit of medicine to save secondary transportation cost or route charges, leaving 0.9 units of clinical demand unfulfilled.
+
+#### Systematic Deterioration Spectrum Evaluation
+
+| Deterioration ($\Delta Z_1$) | Clinical / Physical Manifestation | Legacy 1.0 Cap Result | Strict Numerical Guard ($\tau \le 10^{-5}$) |
+|---|---|---|---|
+| **0.1 weighted units** | Fractional boundary residual shift (e.g. Demand = 100.1, Transfer = 100, Unmet = 0.1) | **Accepted** ($0.1 \le 1.0$) | **REJECTED** ($0.1 > 10^{-5}$) $\implies$ Fallback |
+| **0.9 weighted units** | Under-shipment of 1 discrete unit (Demand = 100.9, Transfer = 100, Unmet = 0.9) | **Accepted** ($0.9 \le 1.0$) | **REJECTED** ($0.9 > 10^{-5}$) $\implies$ Fallback |
+| **Exactly 1.0 weighted unit** | Under-shipment of 1 discrete unit (Demand = 101.0, Transfer = 100, Unmet = 1.0) | **Accepted** ($1.0 \le 1.0$) | **REJECTED** ($1.0 > 10^{-5}$) $\implies$ Fallback |
+| **> 1.0 weighted units (e.g. 1.5)** | Under-shipment of multiple discrete units (e.g. 1 unit of IV fluids $\omega=2.0$ or whole blood $\omega=5.0$) | **Rejected** ($1.5 > 1.0$) | **REJECTED** ($1.5 > 10^{-5}$) $\implies$ Fallback |
+
+**Conclusion**: A 1.0 cap fails to protect against discrete medicine sacrifices across fractional demand boundaries. True clinical priority requires a strictly numerical threshold ($\tau_{\text{numerical}} \le 10^{-5}$) backed by an automated fallback to the Stage 1 physical solution.
 
 ---
 
 ## Section B — Independent Physical Objective Reconstruction Across Stages
 
-For every scenario, both Stage 1 and Stage 2 are independently audited from their physical shipment vectors $x^{(1)}$ and $x^{(2)}$:
+For every scenario, both Stage 1 and Stage 2 are independently audited from their physical shipment vectors $x^{(1)}$ and $x^{(2)}$ using `math.fsum` (Shewchuk exact accumulation algorithm) to prevent floating-point accumulation drift:
 
-1. **Stage 1 Capture**: Before modifying the model for Stage 2, physical shipment vector $x^{(1)}$ is captured and its physical allocation balance is computed:
+1. **Stage 1 Capture**: Immediately following Stage 1 solve, the physical shipment vector $x^{(1)}$ is captured and its physical allocation balance is computed:
    $$\text{actual\_unmet}^{(1)}[j, m] = \max(0.0, \text{dem}[j, m] - (\text{stk}[j, m] + \text{inbound}^{(1)}[j, m] - \text{outbound}^{(1)}[j, m]))$$
-   $$Z_{1, \text{phys}}^{(1)} = \sum_{j, m} \omega_m \cdot \text{actual\_unmet}^{(1)}[j, m]$$
-2. **Stage 2 Capture**: Following Stage 2 solve, physical shipment vector $x^{(2)}$ is captured and its physical allocation balance is computed:
-   $$Z_{1, \text{phys}}^{(2)} = \sum_{j, m} \omega_m \cdot \text{actual\_unmet}^{(2)}[j, m]$$
+   $$Z_{1, \text{phys}}^{(1)} = \text{math.fsum}(\omega_m \cdot \text{actual\_unmet}^{(1)}[j, m])$$
+2. **Stage 2 Capture**: Following Stage 2 solve, the physical shipment vector $x^{(2)}$ is captured and its physical allocation balance is computed:
+   $$Z_{1, \text{phys}}^{(2)} = \text{math.fsum}(\omega_m \cdot \text{actual\_unmet}^{(2)}[j, m])$$
 
-### Scenario 32 Four-Objective Comparison & Root Cause Analysis
+### Scenario 32 Investigation & Root Cause Analysis
 
-In Scenario 32 (severe statewide casualty event with 105M units of initial shortage), the four evaluated values are:
+In Scenario 32 (catastrophic statewide disaster with initial unmet clinical demand exceeding 105M weighted units), the four evaluated values are:
 
-| Metric | Symbol | Value (Weighted Units) | Difference vs $Z_{1, \text{solver}}^{(1)}$ |
+| Metric | Symbol | Exact Value (Accumulated via `math.fsum`) | Difference vs $Z_{1, \text{solver}}^{(1)}$ |
 |---|---|---|---|
-| **Stage 1 Solver Objective** | $Z_{1, \text{solver}}^{(1)}$ | **105,184,402.20000002** | Baseline |
-| **Stage 1 Physical Objective** | $Z_{1, \text{phys}}^{(1)}$ | **105,184,402.19999999** | **-0.00000003** ($-3 \times 10^{-8}$) |
-| **Stage 2 Solver Objective** | $Z_{1, \text{solver}}^{(2)}$ | **105,184,402.53333327** | **+0.33333325** |
-| **Stage 2 Physical Objective** | $Z_{1, \text{phys}}^{(2)}$ | **105,184,402.29999998** | **+0.09999996** ($\approx +0.10$) |
+| **1. Stage 1 Solver Objective** | $Z_{1, \text{solver}}^{(1)}$ | **105,184,402.20000002** | Baseline |
+| **2. Stage 1 Physical Objective** | $Z_{1, \text{phys}}^{(1)}$ | **105,184,402.19999999** | **-0.00000003** ($-3 \times 10^{-8}$) |
+| **3. Stage 2 Solver Slack Sum** | $Z_{1, \text{solver}}^{(2)}$ | **105,184,402.53333327** | **+0.33333325** |
+| **4. Stage 2 Physical Objective** | $Z_{1, \text{phys}}^{(2)}$ | **105,184,402.29999998** | **+0.09999996** ($\approx \mathbf{+0.10}$) |
 
-#### Root Cause Analysis of the Discrepancy
-1. **Independent Reconstruction Accuracy**:
-   $Z_{1, \text{phys}}^{(1)}$ agrees with $Z_{1, \text{solver}}^{(1)}$ to within $-3 \times 10^{-8}$ (exact IEEE 754 double-precision rounding across 175 accumulated terms). The reconstruction formula is mathematically and numerically exact.
-2. **SCIP LP Feasibility Tolerance on Large Scale Objectives**:
-   In Stage 2, the constraint added is:
-   $$\sum_{j, m} \omega_m \cdot \text{unmet}[j, m] \le Z_{1, \text{solver}}^{(1)}$$
-   SCIP evaluates linear constraint feasibility using a relative tolerance `feastol = 1e-6`. On an RHS of $1.05 \times 10^8$, SCIP considers a constraint satisfied if:
-   $$\frac{a^T x - b}{\max(1, |b|)} \le 10^{-6}$$
-   Here, the solver's slack sum violation is $+0.3333$, which represents a relative error of:
-   $$\frac{0.3333}{105,184,402.2} \approx 3.17 \times 10^{-9} \ll 10^{-6}$$
-   SCIP considers this constraint satisfied to within 3 parts per billion.
-3. **Secondary Objective Rerouting Pressure**:
-   Stage 2 minimizes transportation cost and maximizes min-coverage fairness ($\theta$). Because the bound constraint permitted a 3 ppb relative slack under SCIP's feasibility tolerance, the solver shifted integer shipments between candidate routes to improve route efficiency and increase $\theta$.
-4. **Physical Impact**:
-   This re-routing shifted integer shipments by discrete steps, resulting in a net change in physical unmet demand of $+0.10$ weighted units statewide.
-   Crucially, $+0.10 < \min_m \omega_m = 1.0$. Not a single whole unit of any medicine was sacrificed. The change is an infinitesimal fractional boundary shift across 35 districts and 5 commodities, strictly guarded by the capped tolerance $\tau_{\text{audit}} = 1.0$.
+#### Detailed Root Cause Determination
+1. **Which district–medicine balances changed?**: Exactly 42 district-medicine pairs exhibited balance changes between Stage 1 and Stage 2. Stage 1 sent massive shipments into huge casualty centers (Ahmednagar: 30,296 antibiotics, 745,135 ORS, 275,694 IV fluids; Mumbai: 50,820 antibiotics, 127,050 ORS). Stage 2 rerouted these shipments toward closer deficit districts (Buldhana, Hingoli, Jalna, Latur, Nanded, Parbhani, Washim).
+2. **Which shipment quantities changed?**: 75 route transfer variables changed. Overall, Stage 2 transferred **14,277 fewer antibiotics** statewide (416,755 vs. 431,032).
+3. **Is the difference caused by a fractional demand boundary?**: **YES.** The recipient districts have non-integer fractional demands (.1, .2, .3, .4, .8). Shifting integer shipments across these boundaries altered the fractional residual sum from .20 to .30, leaving a +0.10 weighted unit increase in physical unmet demand.
+4. **Did Stage 2's transport or fairness objective benefit from the deterioration?**: **YES.** Secondary transportation cost dropped from **₹22.49 Billion to ₹13.68 Billion (a savings of ₹8.81 Billion)**, and minimum coverage $\theta$ increased from **0.0000 to 0.0696**.
+5. **Is the change numerical solver tolerance or a genuine physical difference?**: **It is a genuine physical difference of +0.10 units**, enabled by SCIP's relative LP feasibility tolerance. SCIP evaluates constraints with relative `feastol = 1e-6`. On an RHS of $1.05 \times 10^8$, a slack violation of $+0.33$ represents a relative error of $3.17 \times 10^{-9} \ll 10^{-6}$, which SCIP considers fully feasible. Under secondary objective pressure, SCIP exploited this 3 ppb relative slack to find a cheaper, fairer solution that sacrificed 0.10 units of physical clinical demand.
+6. **Machine Epsilon Verdict**: A 0.10 change across 175 float additions is **not** machine epsilon (which is $\approx 10^{-8}$ in float64). It is a real physical shortage increase that violates strict lexicographic priority.
 
-Across all 36 stratified benchmark scenarios, **all 36 scenarios pass the capped audit tolerance verification** (maximum difference across the entire suite is $0.10 \le 1.0$).
+---
+
+## Section C — Resolution of Strict Lexicographic Priority: The Fallback Architecture
+
+### Strict Clinical Priority Mandate
+In disaster triage, clinical shortage minimization is strictly non-negotiable:
+$$\text{Level 1: } \min Z_1 = \sum_{j, m} \omega_m \cdot \text{actual\_unmet}[j, m]$$
+$$\text{Level 2: } \min Z_2 = \text{cost} - W_{\text{fairness}} \cdot \theta \quad \text{s.t. } Z_1 \le Z_1^*$$
+
+Because floating-point MIP solvers evaluate constraints up to relative feasibility tolerance $\epsilon_{\text{feas}}$, mathematical constraints of the form $\sum \omega_m u_{jm} \le Z_1^*$ cannot mathematically guarantee zero physical deterioration on massive multi-million unit instances.
+
+### The Infallible Post-Solve Fallback Mechanism
+To guarantee that strict clinical priority is never compromised by solver feasibility relaxation:
+1. **Numerical Error Bound**:
+   $$\tau_{\text{numerical}} = \max(10^{-5}, 10^{-11} \cdot Z_{1, \text{phys}}^{(1)})$$
+   For standard scales, $\tau = 10^{-5}$. For $10^8$ catastrophe scales, $\tau \approx 0.001$, strictly blocking any fractional under-shipment ($\ge 0.10$).
+2. **Post-Solve Verification & Fallback**:
+   - If $Z_{1, \text{phys}}^{(2)} \le Z_{1, \text{phys}}^{(1)} + \tau_{\text{numerical}}$: Stage 2 strictly preserved the primary optimum within numerical precision. Stage 2's plan is accepted (`stage2_accepted = True, lexicographic_fallback = False`).
+   - If $Z_{1, \text{phys}}^{(2)} > Z_{1, \text{phys}}^{(1)} + \tau_{\text{numerical}}$: Stage 2 traded away primary clinical demand. **The engine rejects Stage 2 and falls back to the Stage 1 physical allocation plan $x^{(1)}$** (`stage2_accepted = False, lexicographic_fallback = True`).
+3. **Verification in Scenario 32**:
+   - Stage 1 Physical Optimum: $105,184,402.20$
+   - Stage 2 Physical Deterioration: $105,184,402.30$ (diff = $+0.10 > \tau_{\text{numerical}}$)
+   - Fallback Action: **Stage 2 rejected; Stage 1 plan deployed.**
+   - Final Plan Physical Unmet: **105,184,402.20**
+   - Final Physical Deterioration: **0.00000000** (Strict clinical priority strictly enforced!).
 
 ---
 
@@ -178,13 +198,13 @@ From [`reports/phase2_fairness_sensitivity.csv`](file:///Users/diksha/Downloads/
   * `tests_api/test_api_endpoints.py`: 19 passed
   * `tests_api/test_auth_audit.py`: 10 passed
   * `tests/test_phase1_regressions.py`: 17 passed
-  * `tests/test_phase2_optimization.py`: 40 passed (including all 8 audit tests and 7 adversarial tests)
-  * **Backend Total: 118 passed, 0 failed** in 15.86s.
+  * `tests/test_phase2_optimization.py`: 42 passed (including all 8 audit tests, fractional under-shipment counterexample, deterioration spectrum tests, large objective tolerance guard, and Scenario 32 strict fallback)
+  * **Backend Total: 120 passed, 0 failed** in 15.33s.
 - **Frontend Suite**:
   * Vitest Suite (`npm test -- --run`): 7 passed, 0 failed in 1.45s.
   * TypeScript Checking (`npx tsc --noEmit`): 0 errors (exit code 0).
   * Production Build (`npm run build`): Successfully built in 8.26s.
-- **Grand Total**: **125 automated tests passed, 0 failed**.
+- **Grand Total**: **127 automated tests passed, 0 failed**.
 
 ### 2. Model Integrity Certification
 Certified zero modifications to all production `.joblib` model weights and explainers:
@@ -204,8 +224,8 @@ Certified zero modifications to all production `.joblib` model weights and expla
 | Issue ID | Domain | Investigation & Mathematical Resolution | Final Status |
 |---|---|---|---|
 | **ISS-01** | Lexicographic Shortage Priority | Replaced single-stage scalarization with sequential 2-stage lexicographic MIP; guaranteed absolute prioritization of weighted unmet demand. | **RESOLVED** |
-| **ISS-02** | Epsilon Constraint & Strict Clinical Priority | Replaced artificial $+ 10^{-4}$ tolerance with exact bound $Z_1 \le Z_1^*$; eliminated under-shipment exploitation at fractional boundaries. | **RESOLVED** |
-| **ISS-03** | Independent Allocation-Balance Audit | Replaced internal slack re-summation with independent reconstruction of actual unmet demand from physical shipments $x_{i, j, m}$; enforced post-solve guard with threshold $\tau = \max(10^{-5}, 10^{-6} \cdot Z_1^*)$. | **RESOLVED** |
+| **ISS-02** | Epsilon Constraint & Strict Clinical Priority | Refuted 1.0 tolerance cap for fractional demands; replaced artificial tolerance with exact bound $Z_1 \le Z_1^*$; eliminated under-shipment exploitation at fractional boundaries. | **RESOLVED** |
+| **ISS-03** | Independent Allocation-Balance Audit | Replaced internal slack re-summation with independent reconstruction of actual unmet demand from physical shipments $x_{i, j, m}$; enforced post-solve guard with strict numerical tolerance $\tau_{\text{numerical}} = \max(10^{-5}, 10^{-11} \cdot Z_1^*)$ and automatic fallback to Stage 1 physical allocation plan. | **RESOLVED** |
 | **ISS-04** | Stage 2 Fairness Sensitivity & Production Choice | Evaluated 5-point grid ($W \in [0, 10^6]$); proved $W_{\text{fairness}} = 100,000$ improves $\theta$ from 0.2222 to 0.5128 at zero practical cost (-₹0.06); independently reconciled $\theta$. | **RESOLVED** |
 | **ISS-05** | Paired Cost Statistics Completeness | Reported all 15 required statistical metrics for all 4 baselines on $N=18$ cohort ($N_{\text{nz}}=14$); reconciled ratio-of-means (31.14%, 32.58%) vs scenario percentages (31.11%, 41.75%); reconciled zero-cost baseline for No Redistribution. | **RESOLVED** |
 | **ISS-06** | Reserve Sensitivity & 98.7% Statement | Reconciled 98.7% to Scenario 0 demand reduction (96.83% system-wide); defended $\beta = 0.30$ as a civil defense risk-management policy choice. | **RESOLVED** |
@@ -216,4 +236,4 @@ Certified zero modifications to all production `.joblib` model weights and expla
 ---
 
 ## Summary & Readiness
-Phase 2 verification is complete, hardened with independent physical allocation-balance auditing, statistically reconciled, and backed by 122 automated tests. The system is certified ready for transition to Phase 3.
+Phase 2 verification is complete, hardened with independent physical allocation-balance auditing, strict clinical priority fallback protection against simplex feasibility tolerances, statistically reconciled, and backed by 127 automated tests. The system is certified ready for transition to Phase 3.

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 import json
 import time
+import math
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -180,8 +181,12 @@ def solve_resource_allocation(
     optimal_weighted_unmet = None
     stage1_reconstructed_unmet = None
     stage2_solver_unmet = None
+    stage2_reconstructed_unmet = None
     reconstructed_weighted_unmet = None
     audit_tolerance = None
+    stage2_accepted = True
+    lexicographic_fallback = False
+    allocations = []
 
     if lexicographic:
         # -------------------------------------------------------------
@@ -217,16 +222,39 @@ def solve_resource_allocation(
                 "optimal_weighted_unmet": None,
                 "stage1_reconstructed_unmet": None,
                 "stage2_solver_unmet": None,
+                "stage2_reconstructed_unmet": None,
                 "reconstructed_weighted_unmet": None,
-                "audit_tolerance": None
+                "audit_tolerance": None,
+                "stage2_accepted": False,
+                "lexicographic_fallback": False
             }
             cols = ["source_region", "dest_region", "medicine", "quantity", "distance_km", "cost", "priority", "confidence"]
             return pd.DataFrame(columns=cols), summary
 
         optimal_weighted_unmet = float(obj1.Value())
 
-        # Reconstruct Stage 1 physical allocation objective directly from x[i, j, m]
-        stage1_reconstructed_unmet = 0.0
+        # Extract Stage 1 physical allocation plan
+        stage1_allocations = []
+        for (i, j, m), var in x.items():
+            qty = int(round(var.solution_value()))
+            if qty > 0:
+                d_ij = float(distances_df.loc[i, j]) if (i in distances_df.index and j in distances_df.columns) else 9999.0
+                cost = round(qty * d_ij * cost_per_km_unit, 2)
+                r_level = region_risks.get(j, {}).get(m, "Medium") if region_risks else "Medium"
+                conf = region_confidences.get(j, {}).get(m, 0.85) if region_confidences else 0.85
+                stage1_allocations.append({
+                    "source_region": i,
+                    "dest_region": j,
+                    "medicine": m,
+                    "quantity": qty,
+                    "distance_km": round(d_ij, 1),
+                    "cost": cost,
+                    "priority": "CRITICAL" if r_level == "High" else "HIGH" if r_level == "Medium" else "STANDARD",
+                    "confidence": round(float(conf), 3)
+                })
+
+        # Reconstruct Stage 1 physical allocation objective directly from x[i, j, m] using math.fsum
+        stage1_unmet_terms = []
         for j in districts:
             for m in medicines:
                 stk = float(region_stocks.get(j, {}).get(m, 0.0))
@@ -234,7 +262,8 @@ def solve_resource_allocation(
                 inbound = sum(float(x[i, j, m].solution_value()) for i in districts if (i, j, m) in x)
                 outbound = sum(float(x[j, k, m].solution_value()) for k in districts if (j, k, m) in x)
                 actual_unmet = max(0.0, dem - (stk + inbound - outbound))
-                stage1_reconstructed_unmet += actual_unmet * MEDICINE_CRITICALITY.get(m, 1.0)
+                stage1_unmet_terms.append(actual_unmet * MEDICINE_CRITICALITY.get(m, 1.0))
+        stage1_reconstructed_unmet = math.fsum(stage1_unmet_terms)
 
         # Constrain Stage 1 objective value with numerical tolerance
         unmet_weighted_sum = solver.Sum(unmet[j, m] * MEDICINE_CRITICALITY.get(m, 1.0) for j in districts for m in medicines)
@@ -262,79 +291,67 @@ def solve_resource_allocation(
         obj2.SetMinimization()
         status = solver.Solve()
 
+        # Strict Clinical Priority Audit & Fallback Guard:
+        # In disaster healthcare operations, NO positive primary deterioration can ever be clinically justified.
+        # Double-precision accumulation noise across 175 terms on scale Z1* is bounded by 1e-11 * Z1* (or 1e-5 absolute).
+        audit_tolerance = max(1e-5, 1e-11 * optimal_weighted_unmet)
+
         if status not in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
-            # If Stage 2 fails, do not return unoptimized plan
-            solve_duration_ms = (time.time() - start_time) * 1000
-            summary = {
-                "solve_status": "INFEASIBLE",
-                "stage1_status": "OPTIMAL",
-                "solve_time_ms": float(round(solve_duration_ms, 2)),
-                "total_transferred_units": 0,
-                "total_transport_cost": 0.0,
-                "unmet_demand_before": 0.0,
-                "unmet_demand_after": 0.0,
-                "demand_reduction_pct": 0.0,
-                "min_coverage_before": 0.0,
-                "min_coverage_after": 0.0,
-                "active_routes_count": 0,
-                "fairness_theta": 0.0,
-                "eligible_fairness_pairs": len(eligible_pairs),
-                "lexicographic_optimization": True,
-                "optimal_weighted_unmet": optimal_weighted_unmet,
-                "stage1_reconstructed_unmet": float(round(stage1_reconstructed_unmet, 4)),
-                "stage2_solver_unmet": None,
-                "reconstructed_weighted_unmet": None,
-                "audit_tolerance": None
-            }
-            cols = ["source_region", "dest_region", "medicine", "quantity", "distance_km", "cost", "priority", "confidence"]
-            return pd.DataFrame(columns=cols), summary
+            # If Stage 2 fails, fallback to Stage 1 physical solution to preserve clinical optimality
+            stage2_accepted = False
+            lexicographic_fallback = True
+            allocations = stage1_allocations
+            reconstructed_weighted_unmet = stage1_reconstructed_unmet
+            stage2_solver_unmet = None
+            stage2_reconstructed_unmet = None
+        else:
+            stage2_solver_unmet = float(sum(unmet[j, m].solution_value() * MEDICINE_CRITICALITY.get(m, 1.0) for j in districts for m in medicines))
+            
+            stage2_allocations = []
+            for (i, j, m), var in x.items():
+                qty = int(round(var.solution_value()))
+                if qty > 0:
+                    d_ij = float(distances_df.loc[i, j]) if (i in distances_df.index and j in distances_df.columns) else 9999.0
+                    cost = round(qty * d_ij * cost_per_km_unit, 2)
+                    r_level = region_risks.get(j, {}).get(m, "Medium") if region_risks else "Medium"
+                    conf = region_confidences.get(j, {}).get(m, 0.85) if region_confidences else 0.85
+                    stage2_allocations.append({
+                        "source_region": i,
+                        "dest_region": j,
+                        "medicine": m,
+                        "quantity": qty,
+                        "distance_km": round(d_ij, 1),
+                        "cost": cost,
+                        "priority": "CRITICAL" if r_level == "High" else "HIGH" if r_level == "Medium" else "STANDARD",
+                        "confidence": round(float(conf), 3)
+                    })
 
-        # Method D: Independent allocation-balance audit of physical shipments x[i, j, m]
-        # Reconstruct actual unmet demand directly from physical shipments x[i, j, m],
-        # independent of the solver's internal auxiliary slack variables.
-        stage2_solver_unmet = float(sum(unmet[j, m].solution_value() * MEDICINE_CRITICALITY.get(m, 1.0) for j in districts for m in medicines))
-        reconstructed_weighted_unmet = 0.0
-        for j in districts:
-            for m in medicines:
-                stk = float(region_stocks.get(j, {}).get(m, 0.0))
-                dem = float(region_demands.get(j, {}).get(m, 0.0))
-                inbound = sum(float(x[i, j, m].solution_value()) for i in districts if (i, j, m) in x)
-                outbound = sum(float(x[j, k, m].solution_value()) for k in districts if (j, k, m) in x)
-                net_final_stock = stk + inbound - outbound
-                actual_unmet = max(0.0, dem - net_final_stock)
-                reconstructed_weighted_unmet += actual_unmet * MEDICINE_CRITICALITY.get(m, 1.0)
+            # Reconstruct Stage 2 physical unmet demand with math.fsum
+            stage2_unmet_terms = []
+            for j in districts:
+                for m in medicines:
+                    stk = float(region_stocks.get(j, {}).get(m, 0.0))
+                    dem = float(region_demands.get(j, {}).get(m, 0.0))
+                    inbound = sum(float(x[i, j, m].solution_value()) for i in districts if (i, j, m) in x)
+                    outbound = sum(float(x[j, k, m].solution_value()) for k in districts if (j, k, m) in x)
+                    net_final_stock = stk + inbound - outbound
+                    actual_unmet = max(0.0, dem - net_final_stock)
+                    stage2_unmet_terms.append(actual_unmet * MEDICINE_CRITICALITY.get(m, 1.0))
+            stage2_reconstructed_unmet = math.fsum(stage2_unmet_terms)
 
-        # Capped defensible audit tolerance: min(1.0, max(1e-5, 1e-6 * optimal_weighted_unmet))
-        # For zero or near-zero shortage (< 1.0), 1e-5 floor detects fractional under-shipment.
-        # For large shortage, capping at 1.0 strictly prevents sacrificing even 1 discrete unit of medicine
-        # (min_m omega_m = 1.0 for ORS/analgesics), while accommodating SCIP LP feasibility tolerance (1e-6 relative).
-        audit_tolerance = min(1.0, max(1e-5, 1e-6 * optimal_weighted_unmet))
-        physical_baseline = max(optimal_weighted_unmet, stage1_reconstructed_unmet)
-        if reconstructed_weighted_unmet > physical_baseline + audit_tolerance:
-            solve_duration_ms = (time.time() - start_time) * 1000
-            summary = {
-                "solve_status": "INFEASIBLE",
-                "stage1_status": "OPTIMAL",
-                "solve_time_ms": float(round(solve_duration_ms, 2)),
-                "total_transferred_units": 0,
-                "total_transport_cost": 0.0,
-                "unmet_demand_before": 0.0,
-                "unmet_demand_after": 0.0,
-                "demand_reduction_pct": 0.0,
-                "min_coverage_before": 0.0,
-                "min_coverage_after": 0.0,
-                "active_routes_count": 0,
-                "fairness_theta": 0.0,
-                "eligible_fairness_pairs": len(eligible_pairs),
-                "lexicographic_optimization": True,
-                "optimal_weighted_unmet": optimal_weighted_unmet,
-                "stage1_reconstructed_unmet": float(round(stage1_reconstructed_unmet, 4)),
-                "stage2_solver_unmet": float(round(stage2_solver_unmet, 4)),
-                "reconstructed_weighted_unmet": float(round(reconstructed_weighted_unmet, 4)),
-                "audit_tolerance": float(round(audit_tolerance, 6))
-            }
-            cols = ["source_region", "dest_region", "medicine", "quantity", "distance_km", "cost", "priority", "confidence"]
-            return pd.DataFrame(columns=cols), summary
+            if stage2_reconstructed_unmet > stage1_reconstructed_unmet + audit_tolerance:
+                # Stage 2 degraded primary clinical optimum due to solver feasibility slack across fractional demand boundaries.
+                # Strictly preserve clinical priority by rejecting Stage 2 and falling back to Stage 1 physical solution.
+                stage2_accepted = False
+                lexicographic_fallback = True
+                allocations = stage1_allocations
+                reconstructed_weighted_unmet = stage1_reconstructed_unmet
+            else:
+                # Stage 2 strictly preserved the primary optimum within numerical precision.
+                stage2_accepted = True
+                lexicographic_fallback = False
+                allocations = stage2_allocations
+                reconstructed_weighted_unmet = stage2_reconstructed_unmet
 
     else:
         # Standard weighted scalarized optimization
@@ -357,24 +374,13 @@ def solve_resource_allocation(
         obj.SetMinimization()
         status = solver.Solve()
 
-    solve_duration_ms = (time.time() - start_time) * 1000
-
-    # 5. Extract Results
-    allocations = []
-    total_transferred = 0
-    total_cost = 0.0
-    active_routes_count = 0
-
-    if status in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
-        active_routes_count = sum(1 for var in y.values() if var.solution_value() > 0.5)
         for (i, j, m), var in x.items():
-            qty = int(var.solution_value())
+            qty = int(round(var.solution_value()))
             if qty > 0:
-                d_ij = float(distances_df.loc[i, j])
+                d_ij = float(distances_df.loc[i, j]) if (i in distances_df.index and j in distances_df.columns) else 9999.0
                 cost = round(qty * d_ij * cost_per_km_unit, 2)
                 r_level = region_risks.get(j, {}).get(m, "Medium") if region_risks else "Medium"
                 conf = region_confidences.get(j, {}).get(m, 0.85) if region_confidences else 0.85
-
                 allocations.append({
                     "source_region": i,
                     "dest_region": j,
@@ -385,17 +391,20 @@ def solve_resource_allocation(
                     "priority": "CRITICAL" if r_level == "High" else "HIGH" if r_level == "Medium" else "STANDARD",
                     "confidence": round(float(conf), 3)
                 })
-                total_transferred += qty
-                total_cost += cost
 
-    # Include fixed route costs in total transport cost to mirror evaluator exactly
-    total_cost += active_routes_count * fixed_route_cost
+    solve_duration_ms = (time.time() - start_time) * 1000
 
     cols = ["source_region", "dest_region", "medicine", "quantity", "distance_km", "cost", "priority", "confidence"]
     if not allocations:
         alloc_df = pd.DataFrame(columns=cols)
     else:
         alloc_df = pd.DataFrame(allocations)[cols]
+
+    active_routes = set((row["source_region"], row["dest_region"]) for _, row in alloc_df.iterrows() if row["quantity"] > 0)
+    active_routes_count = len(active_routes)
+    total_transferred = int(alloc_df["quantity"].sum()) if len(alloc_df) else 0
+    variable_cost = sum(row["cost"] for _, row in alloc_df.iterrows()) if len(alloc_df) else 0.0
+    total_cost = round(variable_cost + active_routes_count * fixed_route_cost, 2)
 
     # Compute baseline metrics before transfers
     unmet_before = 0.0
@@ -426,7 +435,7 @@ def solve_resource_allocation(
     min_cov_after = float(np.min(coverages_after)) if coverages_after else 1.0
 
     summary = {
-        "solve_status": "OPTIMAL" if status == pywraplp.Solver.OPTIMAL else "FEASIBLE" if status == pywraplp.Solver.FEASIBLE else "INFEASIBLE",
+        "solve_status": "OPTIMAL" if (stage1_status == pywraplp.Solver.OPTIMAL or status == pywraplp.Solver.OPTIMAL) else "FEASIBLE" if (stage1_status == pywraplp.Solver.FEASIBLE or status == pywraplp.Solver.FEASIBLE) else "INFEASIBLE",
         "solve_time_ms": float(round(solve_duration_ms, 2)),
         "total_transferred_units": int(total_transferred),
         "total_transport_cost": float(round(total_cost, 2)),
@@ -436,15 +445,18 @@ def solve_resource_allocation(
         "min_coverage_before": float(round(float(min_cov_before), 3)),
         "min_coverage_after": float(round(float(min_cov_after), 3)),
         "active_routes_count": int(active_routes_count),
-        "fairness_theta": float(round(theta.solution_value() if (status in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE) and eligible_pairs) else 1.0, 4)),
+        "fairness_theta": float(round(min_cov_after, 4)) if lexicographic_fallback else float(round(theta.solution_value() if (status in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE) and eligible_pairs) else 1.0, 4)),
         "eligible_fairness_pairs": len(eligible_pairs),
         "lexicographic_optimization": bool(lexicographic),
         "stage1_status": "OPTIMAL" if stage1_status == pywraplp.Solver.OPTIMAL else "FEASIBLE" if stage1_status == pywraplp.Solver.FEASIBLE else ("N/A" if stage1_status is None else "INFEASIBLE"),
         "optimal_weighted_unmet": float(round(optimal_weighted_unmet, 2)) if optimal_weighted_unmet is not None else None,
         "stage1_reconstructed_unmet": float(round(stage1_reconstructed_unmet, 4)) if stage1_reconstructed_unmet is not None else None,
         "stage2_solver_unmet": float(round(stage2_solver_unmet, 4)) if stage2_solver_unmet is not None else None,
+        "stage2_reconstructed_unmet": float(round(stage2_reconstructed_unmet, 4)) if stage2_reconstructed_unmet is not None else None,
         "reconstructed_weighted_unmet": float(round(reconstructed_weighted_unmet, 4)) if reconstructed_weighted_unmet is not None else None,
-        "audit_tolerance": float(round(audit_tolerance, 6)) if audit_tolerance is not None else None
+        "audit_tolerance": float(round(audit_tolerance, 6)) if audit_tolerance is not None else None,
+        "stage2_accepted": bool(stage2_accepted),
+        "lexicographic_fallback": bool(lexicographic_fallback)
     }
 
     return alloc_df, summary

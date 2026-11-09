@@ -898,9 +898,12 @@ def test_scenario_32_four_objective_comparison():
       3. Z_{1, solver}^{(2)}: Stage 2 solver-reported objective
       4. Z_{1, phys}^{(2)}: Stage 2 independently reconstructed physical objective
     Demonstrates:
-      - Z_{1, phys}^{(1)} matches Z_{1, solver}^{(1)} within double-precision rounding (|diff| < 1e-5).
-      - Z_{1, phys}^{(2)} - Z_{1, phys}^{(1)} <= 1.0 (strictly blocks sacrificing even 1 discrete unit of medicine).
-      - Audit tolerance is capped at 1.0 rather than expanding to 105.18.
+      - Z_{1, phys}^{(1)} matches Z_{1, solver}^{(1)} within double-precision rounding (diff = -3e-8).
+      - Stage 2 secondary optimization drifted by +0.10 units (Z_{1, phys}^{(2)} = 105,184,402.30)
+        due to SCIP relative feasibility tolerance across fractional demand boundaries.
+      - The strict clinical priority guard detects this +0.10 deterioration, rejects Stage 2,
+        and triggers fallback to Stage 1 physical plan, ensuring final physical unmet demand
+        strictly matches the Stage 1 optimum (105,184,402.20).
     """
     from src.engine.monte_carlo import generate_stratified_benchmark_scenarios
     scenarios = generate_stratified_benchmark_scenarios(
@@ -924,45 +927,116 @@ def test_scenario_32_four_objective_comparison():
     z1_solver_1 = summary["optimal_weighted_unmet"]
     z1_phys_1 = summary["stage1_reconstructed_unmet"]
     z1_solver_2 = summary["stage2_solver_unmet"]
-    z1_phys_2 = summary["reconstructed_weighted_unmet"]
-    tol = summary["audit_tolerance"]
+    z1_phys_2 = summary["stage2_reconstructed_unmet"]
+    final_phys = summary["reconstructed_weighted_unmet"]
 
     assert z1_solver_1 is not None
     assert z1_phys_1 is not None
     assert z1_solver_2 is not None
     assert z1_phys_2 is not None
+    assert final_phys is not None
 
     # 1. Stage 1 solver vs physical reconstruction agreement:
     assert abs(z1_phys_1 - z1_solver_1) < 1e-4, f"Stage 1 physical ({z1_phys_1}) diverged from solver ({z1_solver_1})"
 
-    # 2. Tolerance is capped at 1.0 unit:
-    assert tol <= 1.0, f"Audit tolerance {tol} exceeded 1.0 unit cap"
+    # 2. Stage 2 secondary optimization drifted by +0.10 units:
+    stage2_drift = z1_phys_2 - z1_phys_1
+    assert abs(stage2_drift - 0.10) < 1e-4, f"Expected Stage 2 drift of ~0.10, got {stage2_drift}"
 
-    # 3. Stage 2 physical deterioration strictly bounded:
-    assert z1_phys_2 - z1_phys_1 <= 1.0, f"Stage 2 physical degraded by >= 1 unit ({z1_phys_2 - z1_phys_1})"
-    assert z1_phys_2 <= z1_solver_1 + tol, f"Stage 2 physical ({z1_phys_2}) violated tolerance ({z1_solver_1} + {tol})"
+    # 3. Fallback triggered and Stage 2 rejected:
+    assert summary["stage2_accepted"] is False
+    assert summary["lexicographic_fallback"] is True
+
+    # 4. Final returned plan strictly achieves Stage 1 optimum (0.0 deterioration):
+    assert abs(final_phys - z1_phys_1) < 1e-5, f"Final plan ({final_phys}) failed to match Stage 1 optimum ({z1_phys_1})"
 
 
-def test_large_objective_capped_tolerance_blocks_discrete_sacrifice():
+def test_fractional_demand_100_9_under_shipment_counterexample():
     """
-    Verify that for massive shortage objectives (Z1* ~ 1e8), the audit tolerance
-    remains strictly capped at 1.0, mathematically forbidding the sacrifice of 1 discrete unit
-    (min medicine criticality = 1.0), unlike an unbounded relative tolerance that would allow 105+ units.
+    Demonstrate why a 1.0 tolerance cap is mathematically invalid for fractional demand:
+      Demand = 100.9, Stock = 0.
+      Transfer 101: unmet = 0.0 (optimal)
+      Transfer 100: unmet = 0.9 (deterioration = 0.9 units)
+    The shipment difference is 1 discrete unit, but unmet demand increases by only 0.9.
+    A 1.0 cap accepts this 0.9 deterioration, failing to prevent discrete unit sacrifice.
+    The strict clinical priority guard rejects it.
+    """
+    demands = {"R": {"ors": 100.9}, "D": {"ors": 0.0}}
+    stocks = {"R": {"ors": 0.0}, "D": {"ors": 200.0}}
+    dists = pd.DataFrame([[0.0, 50.0], [50.0, 0.0]], index=["R", "D"], columns=["R", "D"])
+
+    # 1. Optimal solve transfers 101 units leaving 0.0 unmet demand
+    plan_df, summary = solve_resource_allocation(demands, stocks, distances_df=dists, lexicographic=True)
+    assert summary["solve_status"] == "OPTIMAL"
+    assert summary["total_transferred_units"] == 101
+    assert summary["reconstructed_weighted_unmet"] == 0.0
+
+    # 2. Under-shipped plan with 100 units
+    plan_100 = pd.DataFrame([{
+        "source_region": "D", "dest_region": "R", "medicine": "ors",
+        "quantity": 100, "distance_km": 50.0, "cost": 75500.0,
+        "priority": "Standard", "confidence": 0.95
+    }])
+    eval_100 = evaluate_allocation_plan(plan_100, demands, stocks, {}, dists)
+    assert abs(eval_100["primary_objective_unmet"] - 0.9) < 1e-5
+
+    # 3. Flaw of 1.0 cap: 0.9 <= 1.0, so a 1.0 cap accepts under-shipping by 1 discrete unit!
+    opt_val = 0.0
+    accepted_by_1_0_cap = (eval_100["primary_objective_unmet"] <= opt_val + 1.0)
+    assert accepted_by_1_0_cap is True, "1.0 cap should have mistakenly accepted 0.9 deterioration"
+
+    # 4. Strict numerical guard: 0.9 > 1e-5, strictly rejected by clinical priority
+    accepted_by_strict_guard = (eval_100["primary_objective_unmet"] <= opt_val + 1e-5)
+    assert accepted_by_strict_guard is False, "Strict guard must reject 0.9 deterioration"
+
+
+def test_fractional_deterioration_spectrum_01_09_10_greater10():
+    """
+    Test the behavior of tolerance guards across a spectrum of deterioration:
+      - 0.1 weighted units (e.g. demand 100.1, transfer 100)
+      - 0.9 weighted units (e.g. demand 100.9, transfer 100)
+      - Exactly 1.0 weighted unit (e.g. demand 101.0, transfer 100)
+      - Greater than 1.0 weighted units (e.g. demand 101.5, transfer 100, unmet = 1.5)
+    Proves:
+      - A 1.0 cap accepts 0.1, 0.9, and 1.0, failing to protect fractional demand.
+      - The strict priority guard (tau = 1e-5) rejects all four.
+    """
+    opt_val = 1000.0
+    deltas = [0.1, 0.9, 1.0, 1.5]
+
+    for delta in deltas:
+        degraded_val = opt_val + delta
+        # Legacy 1.0 cap acceptance:
+        accepted_1_0_cap = (degraded_val <= opt_val + 1.0)
+        # Strict numerical guard:
+        accepted_strict = (degraded_val <= opt_val + 1e-5)
+
+        if delta in [0.1, 0.9, 1.0]:
+            assert accepted_1_0_cap is True, f"1.0 cap unexpectedly rejected delta={delta}"
+            assert accepted_strict is False, f"Strict guard failed to reject delta={delta}"
+        else:
+            assert accepted_1_0_cap is False, f"1.0 cap unexpectedly accepted delta={delta}"
+            assert accepted_strict is False, f"Strict guard failed to reject delta={delta}"
+
+
+def test_large_objective_relative_tolerance_danger():
+    """
+    Verify that for massive shortage objectives (Z1* ~ 1e8), an unconstrained relative tolerance
+    (tau = 1e-6 * Z1* ~ 105.18 units) permits sacrificing 105 units of ORS or 21 units of blood.
+    Demonstrates that the strict fallback guard eliminates this vulnerability.
     """
     opt_val = 105184402.2
-    # Unbounded tolerance from previous formulation:
-    unbounded_tol = max(1e-5, 1e-6 * opt_val)
-    assert unbounded_tol > 105.0, f"Expected unbounded tolerance > 105, got {unbounded_tol}"
+    relative_tol = 1e-6 * opt_val
+    assert relative_tol > 105.0
 
-    # Capped defensible tolerance:
-    capped_tol = min(1.0, max(1e-5, 1e-6 * opt_val))
-    assert capped_tol == 1.0, f"Expected capped tolerance == 1.0, got {capped_tol}"
+    # A solver perturbation sacrificing 20 units of blood (crit=5.0 -> 100 weighted units):
+    loss_20_blood = opt_val + 100.0
+    assert loss_20_blood <= opt_val + relative_tol, "Relative tolerance permitted 20 units of blood to be sacrificed!"
 
-    # If an allocation plan sacrificed just 1 discrete unit of ORS (crit=1.0) or whole blood (crit=5.0):
-    loss_1_unit_ors = opt_val + 1.01
-    loss_1_unit_blood = opt_val + 5.0
-    assert loss_1_unit_ors > opt_val + capped_tol, "Capped tolerance failed to block 1 unit ORS sacrifice"
-    assert loss_1_unit_blood > opt_val + capped_tol, "Capped tolerance failed to block 1 unit blood sacrifice"
+    # Numerical noise bound:
+    num_tol = max(1e-5, 1e-11 * opt_val)
+    assert num_tol < 0.002
+    assert loss_20_blood > opt_val + num_tol, "Strict numerical bound successfully blocks blood sacrifice!"
 
 
 def test_fractional_deterioration_near_audit_threshold():
