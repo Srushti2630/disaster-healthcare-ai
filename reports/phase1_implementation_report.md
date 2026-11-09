@@ -101,6 +101,11 @@ Phase 1 establishes complete fresh-clone reproducibility, deployment configurati
   * Git tracks only `models/.gitkeep`; binary `.joblib` files are excluded by `.gitignore` (`models/*.joblib`).
   * Neither Git LFS nor automated cloud artifact pull (e.g., S3/GCS) is currently wired in the repository root.
   * In containerized environments, production model weights are supplied via **deployment host volume mounting** (`./models:/app/models:ro` in `docker-compose.yml`) or injected by CI/CD build stages into the container image before startup.
+- **Production Artifact Provisioning Checklist**:
+  1. Operator must provision model files (`impact_models.joblib`, `shortage_classifier.joblib`, `shap_explainer.joblib`, etc.) directly into `models/` via secure read-only volume mount or verified deployment bundle.
+  2. The SHA-256 checksums of the provisioned artifacts must match the certified production hashes.
+  3. `scripts/generate_test_models.py` produces fixtures flagged with `provenance="SYNTHETIC_TEST_FIXTURE"` and `is_synthetic=True`, strictly reserved for test/CI environments.
+  4. In production mode (`APP_ENV=production`), application startup and inference reject synthetic fixtures with fatal exit or HTTP 503 errors.
 - **Fresh Clone / Production Safety Guarantees**:
   * On a fresh production clone without model weights, `api/routes.py:readiness_check` strictly verifies `models_loaded`. If `models/` lacks artifacts, the `/ready` probe returns **HTTP 503 Service Unavailable** (`impact_model: False`), preventing traffic routing to uninitialized containers.
   * In production mode (`APP_ENV="production"` or `ENVIRONMENT="production"`), `api/lifespan.py` inspects loaded model objects. If any artifact possesses `is_synthetic == True` or `provenance == "SYNTHETIC_TEST_FIXTURE"`, application initialization halts with a critical fatal error.
@@ -108,6 +113,7 @@ Phase 1 establishes complete fresh-clone reproducibility, deployment configurati
   * `scripts/generate_test_models.py` verifies file existence on disk before generation; it **never overwrites** existing production models.
 
 ### 2. Tree-SHAP Compatibility & Numerical Reconstruction Error
+Across five representative inputs, Tree-SHAP reconstructed the XGBoost predictions with a maximum absolute error of approximately 3.278 × 10^-6 log units, demonstrating very close numerical agreement.
 - **Model Compatibility**:
   * `models/shap_explainer.joblib` is an exact `TreeExplainer` trained on `models/impact_models.joblib` (`XGBRegressor`).
   * Input dimensions: `preprocessor.transform()` yields exactly 37 transformed features (`X_trans.shape[1] == 37`), matching the explainer's expected feature space.

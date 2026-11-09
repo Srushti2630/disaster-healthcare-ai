@@ -1,9 +1,12 @@
 parameter_variation,baseline_high_risk_pct,varied_high_risk_pct,high_risk_change_pct
-Antibiotics Rate (+50%),0.0,0.0,0.0
-Antibiotics Rate (-50%),0.0,0.0,0.0
-ORS Consumption Rate (+50%),0.0,0.0,0.0
-IV Fluids Rate (+50%),0.0,0.0,0.0
-Blood Units Trauma Rate (+50%),0.0,0.0,0.0
-Hazard Severity Multiplier (+30%),0.0,0.0,0.0
-Spatial Decay Radius (decay_km = 75km),0.0,0.0,0.0
-Spatial Decay Radius (decay_km = 300km),0.0,0.0,0.0
+Spatial Decay (decay_km = 75km),1.71,3.43,1.71
+Spatial Decay (decay_km = 300km),1.71,1.14,-0.57
+All Consumption Rates (+25%),1.71,4.0,2.29
+All Consumption Rates (-25%),1.71,0.57,-1.14
+Antibiotics Rate (+25%),1.71,1.71,0.0
+Antibiotics Rate (-25%),1.71,1.71,0.0
+ORS Rate (+25%),1.71,2.29,0.57
+IV Fluids Rate (+25%),1.71,1.71,0.0
+Blood Units Rate (+25%),1.71,2.86,1.14
+Stock Capacity (+25%),1.71,0.57,-1.14
+Stock Capacity (-25%),1.71,4.57,2.86

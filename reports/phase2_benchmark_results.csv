@@ -1,0 +1,11 @@
+method,unmet_demand_mean,unmet_pct_mean,unmet_pct_median,unmet_pct_p75,unmet_pct_p90,cost_mean,unit_km_mean,route_km_mean,min_coverage_mean,violations_mean,violations_max,cohort
+OR-Tools SCIP,55901852.2,24.58,0.01,52.69,91.12,2909406408.91,193960209.7,3013.0,0.595,0.0,0,All 36 Stratified Scenarios
+No Redistribution,56281385.7,26.17,0.01,56.99,91.24,0.0,0.0,0.0,0.595,0.0,0,All 36 Stratified Scenarios
+Proportional Population,56062309.2,25.11,0.01,54.4,91.22,4509405830.21,300625740.5,24550.5,0.595,0.0,0,All 36 Stratified Scenarios
+Greedy Nearest,55903509.2,24.59,0.01,52.69,91.12,4225366879.28,281690995.7,2393.7,0.595,0.0,0,All 36 Stratified Scenarios
+Greedy Largest Surplus,55902967.2,24.59,0.01,52.69,91.12,4315176762.09,287678336.0,2246.3,0.595,0.0,0,All 36 Stratified Scenarios
+OR-Tools SCIP,111803704.3,49.17,55.33,85.22,95.55,5818812817.83,387920419.3,6026.0,0.191,0.0,0,Active Shortage Scenarios (N=18)
+No Redistribution,112562771.5,52.34,59.27,85.8,95.55,0.0,0.0,0.0,0.191,0.0,0,Active Shortage Scenarios (N=18)
+Proportional Population,112124618.3,50.22,57.22,85.55,95.55,9018811660.42,601251481.1,49100.9,0.191,0.0,0,Active Shortage Scenarios (N=18)
+Greedy Nearest,111807018.4,49.19,55.33,85.22,95.55,8450733758.55,563381991.3,4787.5,0.191,0.0,0,Active Shortage Scenarios (N=18)
+Greedy Largest Surplus,111805934.4,49.18,55.33,85.22,95.55,8630353524.19,575356672.0,4492.5,0.191,0.0,0,Active Shortage Scenarios (N=18)

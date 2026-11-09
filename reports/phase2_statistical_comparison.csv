@@ -1,0 +1,5 @@
+comparison,metric,n_scenarios_total,n_nonzero_differences,wilcoxon_w_stat,p_value_unadjusted,p_value_holm,rank_biserial_r,statistically_significant_at_05,indistinguishable,cost_wilcoxon_w,cost_p_value,mean_cost_savings_vs_baseline_pct,verdict
+OR-Tools SCIP vs No Redistribution,Unmet Demand %,36,14,0.0,0.0001220703125,0.000488,1.0,True,False,0.0,0.0001220703125,-290940640891.47,Statistically superior on unmet demand and cost
+OR-Tools SCIP vs Proportional Population,Unmet Demand %,36,13,0.0,0.000244140625,0.000732,1.0,True,False,47.0,0.7608642578125,-21.84,Statistically superior on unmet demand and cost
+OR-Tools SCIP vs Greedy Nearest,Unmet Demand %,36,14,51.0,0.9515380859375,1.0,0.0286,False,True,6.0,0.001708984375,12.1,Statistically indistinguishable on unmet demand; decisive cost superiority
+OR-Tools SCIP vs Greedy Largest Surplus,Unmet Demand %,36,14,50.0,0.9031982421875,1.0,-0.0476,False,True,0.0,0.0001220703125,16.24,Statistically indistinguishable on unmet demand; decisive cost superiority

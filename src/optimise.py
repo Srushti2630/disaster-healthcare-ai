@@ -58,27 +58,39 @@ def load_or_compute_distance_matrix() -> pd.DataFrame:
 
     return pd.DataFrame(matrix, index=districts, columns=districts)
 
+COST_PER_UNIT_KM = 15.0
+FIXED_ROUTE_COST = 500.0
+DEFAULT_SAFETY_RESERVE_RATIO = 0.60
+DEFAULT_EMERGENCY_STOCK_BUFFER_RATIO = 0.30
+
 def solve_resource_allocation(
     region_demands: dict,
     region_stocks: dict,
     region_risks: dict = None,
     region_confidences: dict = None,
     distances_df: pd.DataFrame = None,
-    safety_reserve_ratio: float = 0.60,
-    cost_per_km_unit: float = 0.05,
-    w_unmet: float = 1.0,
-    w_cost: float = 0.10,
-    w_fairness: float = 0.50,
+    safety_reserve_ratio: float = DEFAULT_SAFETY_RESERVE_RATIO,
+    emergency_stock_buffer_ratio: float = DEFAULT_EMERGENCY_STOCK_BUFFER_RATIO,
+    cost_per_km_unit: float = COST_PER_UNIT_KM,
+    fixed_route_cost: float = FIXED_ROUTE_COST,
+    w_unmet: float = 1e6,
+    w_cost: float = 1.0,
+    w_fairness: float = 1e5,
 ):
     """
     Solve multi-objective resource allocation MIP problem via Google OR-Tools SCIP solver.
+    Incorporates:
+      - Robust source reserve: max(alpha * demand, beta * stock) [DEF-04]
+      - Binary route activation variables y[i, j] with defensible Big-M linking [DEF-08]
+      - Fixed route cost + variable transport cost aligned with evaluation metrics [DEF-08]
+      - Eligibility-aware and commodity-aware fairness constraints [DEF-FAIR]
+      - Strict perishable transport distance constraints (<= 150 km for blood) [DEF-BLOOD]
     """
     if distances_df is None:
         distances_df = load_or_compute_distance_matrix()
 
-    districts = list(region_demands.keys())
+    districts = sorted(list(set(region_demands.keys()) | set(region_stocks.keys())))
     medicines = MEDICINES
-    max_dist = float(distances_df.values.max()) if distances_df.values.max() > 0 else 1.0
 
     solver = pywraplp.Solver.CreateSolver("SCIP")
     if not solver:
@@ -86,16 +98,46 @@ def solve_resource_allocation(
 
     start_time = time.time()
 
-    # 1. Variables
+    # Precompute exportable bounds and shortages per (district, medicine)
+    exportable = {}
+    for i in districts:
+        for m in medicines:
+            stk = float(region_stocks.get(i, {}).get(m, 0.0))
+            dem = float(region_demands.get(i, {}).get(m, 0.0))
+            r_level = region_risks.get(i, {}).get(m, "Low") if region_risks else "Low"
+            if r_level == "High":
+                exportable[i, m] = 0
+            else:
+                reserve = max(safety_reserve_ratio * dem, emergency_stock_buffer_ratio * stk)
+                exportable[i, m] = max(0, int(np.floor(stk - reserve)))
+
+    shortage = {}
+    for j in districts:
+        for m in medicines:
+            stk = float(region_stocks.get(j, {}).get(m, 0.0))
+            dem = float(region_demands.get(j, {}).get(m, 0.0))
+            shortage[j, m] = max(0, int(np.ceil(dem - stk)))
+
+    # 1. Variables: Continuous/Integer transfer x[i, j, m] and Binary route activation y[i, j]
     x = {}
+    candidate_routes = set()
     for i in districts:
         for j in districts:
             if i != j:
+                d_ij = float(distances_df.loc[i, j]) if (i in distances_df.index and j in distances_df.columns) else 9999.0
                 for m in medicines:
-                    d_ij = float(distances_df.loc[i, j])
                     max_km = PERISHABLE_MAX_KM.get(m, 9999.0)
-                    if d_ij <= max_km:
-                        x[i, j, m] = solver.IntVar(0, solver.infinity(), f"x_{i}_{j}_{m}")
+                    if d_ij <= max_km and exportable[i, m] > 0 and shortage[j, m] > 0:
+                        upper_bound = min(exportable[i, m], shortage[j, m])
+                        x[i, j, m] = solver.IntVar(0, upper_bound, f"x_{i}_{j}_{m}")
+                        candidate_routes.add((i, j))
+
+    y = {}
+    for (i, j) in candidate_routes:
+        y[i, j] = solver.BoolVar(f"y_{i}_{j}")
+        # Tight Big-M formulation: M_ij = sum_m upper_bound(x[i, j, m])
+        m_ij = sum(min(exportable[i, m], shortage[j, m]) for m in medicines if (i, j, m) in x)
+        solver.Add(solver.Sum(x[i, j, m] for m in medicines if (i, j, m) in x) <= m_ij * y[i, j], f"route_activation_{i}_{j}")
 
     unmet = {}
     for j in districts:
@@ -103,60 +145,59 @@ def solve_resource_allocation(
             unmet[j, m] = solver.NumVar(0.0, solver.infinity(), f"unmet_{j}_{m}")
 
     theta = solver.NumVar(0.0, 1.0, "min_coverage_theta")
+    eligible_pairs = []
 
     # 2. Constraints
 
-    # (a) Source safety reserve constraint:
+    # (a) Source safety reserve constraint (DEF-04):
     for i in districts:
         for m in medicines:
-            stk = region_stocks.get(i, {}).get(m, 0.0)
-            dem = region_demands.get(i, {}).get(m, 0.0)
-            r_level = region_risks.get(i, {}).get(m, "Low") if region_risks else "Low"
-
-            if r_level == "High":
-                exportable = 0
-            else:
-                reserve = safety_reserve_ratio * dem
-                exportable = max(0, int(np.floor(stk - reserve)))
-
-            valid_routes = [x[i, j, m] for j in districts if j != i and (i, j, m) in x]
+            valid_routes = [x[i, j, m] for j in districts if (i, j, m) in x]
             if valid_routes:
-                solver.Add(solver.Sum(valid_routes) <= exportable, f"reserve_limit_{i}_{m}")
+                solver.Add(solver.Sum(valid_routes) <= exportable[i, m], f"reserve_limit_{i}_{m}")
 
     # (b) Destination intake limit & unmet demand definition:
-    total_system_demand = 0.0
     for j in districts:
         for m in medicines:
-            stk = region_stocks.get(j, {}).get(m, 0.0)
-            dem = region_demands.get(j, {}).get(m, 0.0)
-            total_system_demand += dem
+            stk = float(region_stocks.get(j, {}).get(m, 0.0))
+            dem = float(region_demands.get(j, {}).get(m, 0.0))
 
-            exports = [x[j, k, m] for k in districts if k != j and (j, k, m) in x]
-            imports = [x[i, j, m] for i in districts if i != j and (i, j, m) in x]
+            exports = [x[j, k, m] for k in districts if (j, k, m) in x]
+            imports = [x[i, j, m] for i in districts if (i, j, m) in x]
 
             net_final_stock = stk - solver.Sum(exports) + solver.Sum(imports)
             solver.Add(unmet[j, m] >= dem - net_final_stock, f"unmet_def_{j}_{m}")
 
-            # Fairness constraint
-            if dem > 10.0:
+            # Eligibility-aware fairness constraint (DEF-FAIR):
+            # District is eligible if it has strictly positive demand, pre-transfer shortage,
+            # and at least one feasible donor route for this commodity.
+            has_donor = any((i, j, m) in x for i in districts if i != j)
+            if dem > 0 and (dem - stk) > 0 and has_donor:
                 solver.Add(net_final_stock >= theta * dem, f"fairness_{j}_{m}")
-
-    total_system_demand = max(1.0, total_system_demand)
+                eligible_pairs.append((j, m))
 
     # 3. Multi-Objective Objective Function
     obj = solver.Objective()
 
+    # Prioritize unmet demand reduction
     for j in districts:
         for m in medicines:
             crit = MEDICINE_CRITICALITY.get(m, 1.0)
             obj.SetCoefficient(unmet[j, m], float(w_unmet * crit))
 
+    # Variable transport cost: sum k[c] * d_ij * x[i, j, m]
     for (i, j, m), var in x.items():
         d_ij = float(distances_df.loc[i, j])
-        norm_dist_cost = (d_ij / max_dist) * cost_per_km_unit
-        obj.SetCoefficient(var, float(w_cost * norm_dist_cost))
+        obj.SetCoefficient(var, float(w_cost * cost_per_km_unit * d_ij))
 
-    obj.SetCoefficient(theta, float(-w_fairness * total_system_demand))
+    # Fixed route activation cost: F * sum y[i, j]
+    for (i, j), var_y in y.items():
+        obj.SetCoefficient(var_y, float(w_cost * fixed_route_cost))
+
+    # Maximize min coverage across eligible districts
+    if eligible_pairs:
+        obj.SetCoefficient(theta, float(-w_fairness))
+
     obj.SetMinimization()
 
     # 4. Solve
@@ -167,8 +208,10 @@ def solve_resource_allocation(
     allocations = []
     total_transferred = 0
     total_cost = 0.0
+    active_routes_count = 0
 
     if status in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
+        active_routes_count = sum(1 for var in y.values() if var.solution_value() > 0.5)
         for (i, j, m), var in x.items():
             qty = int(var.solution_value())
             if qty > 0:
@@ -190,6 +233,9 @@ def solve_resource_allocation(
                 total_transferred += qty
                 total_cost += cost
 
+    # Include fixed route costs in total transport cost to mirror evaluator exactly
+    total_cost += active_routes_count * fixed_route_cost
+
     cols = ["source_region", "dest_region", "medicine", "quantity", "distance_km", "cost", "priority", "confidence"]
     if not allocations:
         alloc_df = pd.DataFrame(columns=cols)
@@ -201,8 +247,8 @@ def solve_resource_allocation(
     coverages_before = []
     for j in districts:
         for m in medicines:
-            stk = region_stocks.get(j, {}).get(m, 0.0)
-            dem = region_demands.get(j, {}).get(m, 0.0)
+            stk = float(region_stocks.get(j, {}).get(m, 0.0))
+            dem = float(region_demands.get(j, {}).get(m, 0.0))
             unmet_before += max(0.0, dem - stk)
             if dem > 0:
                 coverages_before.append(min(1.0, stk / dem))
@@ -212,8 +258,8 @@ def solve_resource_allocation(
     coverages_after = []
     for j in districts:
         for m in medicines:
-            stk = region_stocks.get(j, {}).get(m, 0.0)
-            dem = region_demands.get(j, {}).get(m, 0.0)
+            stk = float(region_stocks.get(j, {}).get(m, 0.0))
+            dem = float(region_demands.get(j, {}).get(m, 0.0))
             transfers_in = alloc_df[(alloc_df["dest_region"] == j) & (alloc_df["medicine"] == m)]["quantity"].sum() if len(alloc_df) else 0
             transfers_out = alloc_df[(alloc_df["source_region"] == j) & (alloc_df["medicine"] == m)]["quantity"].sum() if len(alloc_df) else 0
             final_stk = stk + transfers_in - transfers_out
@@ -233,7 +279,10 @@ def solve_resource_allocation(
         "unmet_demand_after": float(round(float(unmet_after), 1)),
         "demand_reduction_pct": float(round(float((unmet_before - unmet_after) / max(1.0, unmet_before)) * 100, 1)),
         "min_coverage_before": float(round(float(min_cov_before), 3)),
-        "min_coverage_after": float(round(float(min_cov_after), 3))
+        "min_coverage_after": float(round(float(min_cov_after), 3)),
+        "active_routes_count": int(active_routes_count),
+        "fairness_theta": float(round(theta.solution_value() if (status in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE) and eligible_pairs) else 1.0, 4)),
+        "eligible_fairness_pairs": len(eligible_pairs)
     }
 
     return alloc_df, summary
@@ -243,7 +292,7 @@ FIXED_ROUTE_COST = 500.0
 
 def evaluate_allocation_plan(plan_df: pd.DataFrame, region_demands: dict, region_stocks: dict, region_risks: dict, distances_df: pd.DataFrame) -> dict:
     """Evaluate an allocation plan through a shared constraint checker and unified cost function."""
-    districts = list(region_demands.keys())
+    districts = sorted(list(set(region_demands.keys()) | set(region_stocks.keys())))
     violations = 0
     unit_km = 0.0
     active_routes = set()
@@ -274,13 +323,16 @@ def evaluate_allocation_plan(plan_df: pd.DataFrame, region_demands: dict, region
         if qty > 0:
             active_routes.add((i, j))
 
-    # Safety reserve check (remaining stock >= 0.60 * demand)
+    # Safety reserve check (remaining stock >= reserve)
     for i in districts:
         for m in MEDICINES:
-            max_reserve = max(0.0, region_stocks[i][m] - 0.60 * region_demands[i][m])
+            stk_val = float(region_stocks.get(i, {}).get(m, 0.0))
+            dem_val = float(region_demands.get(i, {}).get(m, 0.0))
+            reserve_val = max(0.60 * dem_val, 0.30 * stk_val)
+            max_export = max(0.0, stk_val - reserve_val)
             if region_risks.get(i, {}).get(m) == "High":
-                max_reserve = 0.0
-            if transfers_out[i][m] > max_reserve + 1e-5:
+                max_export = 0.0
+            if transfers_out[i][m] > max_export + 1e-5:
                 violations += 1
 
     route_km = sum(float(distances_df.loc[i, j]) for (i, j) in active_routes)
@@ -290,8 +342,8 @@ def evaluate_allocation_plan(plan_df: pd.DataFrame, region_demands: dict, region
     coverages = []
     for j in districts:
         for m in MEDICINES:
-            stk = region_stocks[j][m]
-            dem = region_demands[j][m]
+            stk = float(region_stocks.get(j, {}).get(m, 0.0))
+            dem = float(region_demands.get(j, {}).get(m, 0.0))
             final_stk = stk + transfers_in[j][m] - transfers_out[j][m]
             unmet += max(0.0, dem - final_stk)
             if dem > 0:
@@ -312,7 +364,7 @@ def solve_proportional_baseline(region_demands: dict, region_stocks: dict, regio
     cols = ["source_region", "dest_region", "medicine", "quantity", "distance_km", "cost", "priority", "confidence"]
     recs = []
     for m in MEDICINES:
-        surplus_map = {d: max(0.0, region_stocks[d][m] - 0.60 * region_demands[d][m]) if region_risks[d][m] != "High" else 0.0 for d in districts}
+        surplus_map = {d: max(0.0, region_stocks[d][m] - max(0.60 * region_demands[d][m], 0.30 * region_stocks[d][m])) if region_risks[d][m] != "High" else 0.0 for d in districts}
         deficit_map = {d: max(0.0, region_demands[d][m] - region_stocks[d][m]) for d in districts}
         tot_surp = sum(surplus_map.values())
         tot_def = sum(deficit_map.values())
@@ -336,7 +388,7 @@ def solve_greedy_nearest_baseline(region_demands: dict, region_stocks: dict, reg
     cols = ["source_region", "dest_region", "medicine", "quantity", "distance_km", "cost", "priority", "confidence"]
     recs = []
     for m in MEDICINES:
-        surplus_map = {d: max(0.0, region_stocks[d][m] - 0.60 * region_demands[d][m]) if region_risks[d][m] != "High" else 0.0 for d in districts}
+        surplus_map = {d: max(0.0, region_stocks[d][m] - max(0.60 * region_demands[d][m], 0.30 * region_stocks[d][m])) if region_risks[d][m] != "High" else 0.0 for d in districts}
         defic_dists = [d for d in districts if region_demands[d][m] > region_stocks[d][m]]
         defic_dists.sort(key=lambda d: region_demands[d][m] - region_stocks[d][m], reverse=True)
         for j in defic_dists:
@@ -360,7 +412,7 @@ def solve_greedy_largest_surplus_baseline(region_demands: dict, region_stocks: d
     cols = ["source_region", "dest_region", "medicine", "quantity", "distance_km", "cost", "priority", "confidence"]
     recs = []
     for m in MEDICINES:
-        surplus_map = {d: max(0.0, region_stocks[d][m] - 0.60 * region_demands[d][m]) if region_risks[d][m] != "High" else 0.0 for d in districts}
+        surplus_map = {d: max(0.0, region_stocks[d][m] - max(0.60 * region_demands[d][m], 0.30 * region_stocks[d][m])) if region_risks[d][m] != "High" else 0.0 for d in districts}
         defic_dists = [d for d in districts if region_demands[d][m] > region_stocks[d][m]]
         defic_dists.sort(key=lambda d: region_demands[d][m] - region_stocks[d][m], reverse=True)
         for j in defic_dists:
