@@ -29,24 +29,37 @@ router = APIRouter()
 # HEALTH & READINESS PROBES
 # -------------------------------------------------------------
 @router.get("/health", summary="Liveness Probe", tags=["System"])
+@router.get("/api/health", summary="Liveness Probe (API alias)", tags=["System"])
 async def health_check() -> Dict[str, str]:
+    """Basic liveness check verifying the HTTP event loop is responding."""
     return {"status": "ok"}
 
 @router.get("/ready", summary="Readiness Probe", tags=["System"])
+@router.get("/api/ready", summary="Readiness Probe (API alias)", tags=["System"])
 async def readiness_check(request: Request) -> Dict[str, Any]:
+    """
+    Readiness check verifying all critical artifacts (data, models, distance matrix) are loaded in memory.
+    Returns HTTP 503 if the backend is still initializing or missing required models.
+    """
     is_ready = getattr(request.app.state, "ready", False)
-    if not is_ready:
+    pop_loaded = hasattr(request.app.state, "pop_df") and not request.app.state.pop_df.empty
+    geojson_loaded = hasattr(request.app.state, "geojson") and len(request.app.state.geojson.get("features", [])) > 0
+    models_loaded = hasattr(request.app.state, "impact_bundle") and request.app.state.impact_bundle is not None
+    dist_loaded = hasattr(request.app.state, "distances_df") and request.app.state.distances_df is not None
+
+    if not is_ready or not (pop_loaded and dist_loaded):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="System is still initializing or missing required models/data."
+            detail="System is not ready: required data or model artifacts are still loading or unavailable."
         )
+
     return {
         "status": "ready",
         "artifacts_loaded": {
-            "districts_data": not request.app.state.pop_df.empty,
-            "geojson": len(request.app.state.geojson.get("features", [])) > 0,
-            "impact_model": request.app.state.impact_bundle is not None,
-            "distance_matrix": request.app.state.distances_df is not None
+            "districts_data": pop_loaded,
+            "geojson": geojson_loaded,
+            "impact_model": models_loaded,
+            "distance_matrix": dist_loaded
         }
     }
 

@@ -16,7 +16,10 @@ import {
   AuditVerifyResponse
 } from "../types";
 
-const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+// Same-origin relative path by default for production deployment via Nginx reverse proxy.
+// Local development is supported via Vite dev server proxy in vite.config.ts.
+const rawApiUrl = import.meta.env.VITE_API_URL;
+const BASE_URL = (rawApiUrl !== undefined && rawApiUrl !== null && rawApiUrl !== "") ? rawApiUrl : "";
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem("token");

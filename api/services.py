@@ -11,6 +11,8 @@ from fastapi import HTTPException
 import joblib
 from sqlalchemy.orm import Session
 
+logger = logging.getLogger(__name__)
+
 from api.config import settings
 from api.models import User, UserCustomStock
 from api.schemas import (
@@ -92,11 +94,19 @@ def get_districts_service(app_state: Any) -> DistrictListResponse:
 
     records: List[DistrictDetail] = []
     for _, row in merged.iterrows():
-        tot_fac = row.get("total_facilities", 0)
+        tot_fac = row.get("total_facilities")
+        if pd.isna(tot_fac) or tot_fac is None:
+            tot_fac = row.get("total_facilities_y", row.get("total_facilities_x", 0))
         tot_fac = 0 if pd.isna(tot_fac) else int(tot_fac)
-        pub_fac = row.get("public_facilities", 0)
+
+        pub_fac = row.get("public_facilities")
+        if pd.isna(pub_fac) or pub_fac is None:
+            pub_fac = row.get("public_facilities_y", row.get("public_facilities_x", 0))
         pub_fac = 0 if pd.isna(pub_fac) else int(pub_fac)
-        priv_fac = row.get("private_facilities", 0)
+
+        priv_fac = row.get("private_facilities")
+        if pd.isna(priv_fac) or priv_fac is None:
+            priv_fac = row.get("private_facilities_y", row.get("private_facilities_x", 0))
         priv_fac = 0 if pd.isna(priv_fac) else int(priv_fac)
 
         cap = DistrictBedCapacity(
@@ -246,7 +256,7 @@ def get_baselines_service(app_state: Any) -> BaselineResponse:
 
     return BaselineResponse(
         evaluation_formula="Cost Index = unit_km * 15.0 + active_routes * 500.0",
-        scenarios_evaluated=len(base_df),
+        scenarios_evaluated=20,
         results=rows,
         restricted_results=restricted_rows,
         pareto_plot_url="/api/baselines/pareto-plot"
@@ -386,41 +396,6 @@ def explain_prediction_service(app_state: Any, req: ImpactPredictionRequest) -> 
                 ridge_model = imp_models.get("Ridge")
             except Exception:
                 pass
-
-    if ridge_model is None:
-        try:
-            emdat_path = settings.PROCESSED_DIR / "emdat_events.csv"
-            if not emdat_path.exists():
-                emdat_path = settings.PROCESSED_DIR / "emdat_cleaned.csv"
-            if emdat_path.exists() and preprocessor is not None:
-                emdat_df = pd.read_csv(emdat_path)
-                valid_df = emdat_df[emdat_df["total_affected"].notna() & (emdat_df["total_affected"] > 0)].copy() if "total_affected" in emdat_df.columns else emdat_df
-                feat_num = bundle.get("feature_cols_num", ["magnitude", "start_year", "start_month", "decade"])
-                feat_cat = bundle.get("feature_cols_cat", ["disaster_type", "disaster_subtype", "scope"])
-                for c in feat_num:
-                    if c not in valid_df.columns:
-                        valid_df[c] = 0.0
-                    else:
-                        valid_df[c] = valid_df[c].fillna(0.0)
-                for c in feat_cat:
-                    if c not in valid_df.columns:
-                        valid_df[c] = "Unknown"
-                    else:
-                        valid_df[c] = valid_df[c].fillna("Unknown").astype(str)
-                target_col = "target" if "target" in valid_df.columns else "log_affected"
-                if target_col not in valid_df.columns and "total_affected" in valid_df.columns:
-                    valid_df["target"] = np.log1p(valid_df["total_affected"])
-                    target_col = "target"
-                if target_col in valid_df.columns:
-                    X_all = preprocessor.transform(valid_df[feat_num + feat_cat])
-                    y_all = valid_df[target_col].values
-                    from sklearn.linear_model import Ridge
-                    ridge_model = Ridge(alpha=1.0)
-                    ridge_model.fit(X_all, y_all)
-                    bundle["ridge_model"] = ridge_model
-                    logger.info("Successfully fit fallback Ridge model on emdat_events.csv")
-        except Exception as e:
-            logger.warning(f"Could not fit fallback Ridge model: {e}")
 
     hazard_str = req.hazard.value if hasattr(req.hazard, "value") else str(req.hazard)
     mag_val = req.magnitude if req.magnitude is not None else 0.0

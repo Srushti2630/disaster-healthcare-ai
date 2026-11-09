@@ -25,30 +25,49 @@ class Settings(BaseSettings):
     # Database & Security
     DATABASE_URL: str = "sqlite:///./disaster_healthcare.db"
     SECRET_KEY: str = "disaster-healthcare-ai-super-secret-key-change-in-prod"
-    JWT_SECRET: Union[str, None] = None
+    JWT_SECRET_KEY: Union[str, None] = None  # Canonical environment variable
+    JWT_SECRET: Union[str, None] = None      # Documented legacy alias
     ADMIN_PASSWORD: Union[str, None] = None
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 120
 
     @property
     def get_jwt_secret(self) -> str:
-        return self.JWT_SECRET or self.SECRET_KEY
+        """
+        Return the effective JWT secret key.
+        Canonical precedence:
+        1. JWT_SECRET_KEY (canonical environment variable matching docker-compose.yml)
+        2. JWT_SECRET (supported documented alias)
+        3. SECRET_KEY (development fallback only)
+        """
+        return self.JWT_SECRET_KEY or self.JWT_SECRET or self.SECRET_KEY
 
     def validate_security(self):
-        """Validate security settings: fail startup in non-development mode if secrets are missing or default."""
-        env_val = os.getenv("ENV") or os.getenv("APP_ENV") or self.APP_ENV or "development"
+        """
+        Validate security settings: fail startup in non-development mode if secrets are missing or default.
+        Never logs or exposes actual secret values.
+        """
+        env_val = os.getenv("APP_ENV") or os.getenv("ENV") or self.APP_ENV or "development"
         env_lower = env_val.strip().lower()
-        if env_lower not in ["development", "dev", "test", "testing"]:
-            effective_jwt = self.JWT_SECRET or self.SECRET_KEY
-            is_default = (
-                not effective_jwt or
-                "change-in-prod" in effective_jwt or
-                "change-this" in effective_jwt or
-                effective_jwt == "disaster-healthcare-ai-super-secret-key-change-in-prod"
-            )
-            if is_default or not self.JWT_SECRET:
-                raise ValueError("JWT_SECRET environment variable must be explicitly configured in non-development mode.")
+        is_production = env_lower in ["production", "prod", "staging"] or env_lower not in ["development", "dev", "test", "testing"]
+
+        effective_jwt = self.JWT_SECRET_KEY or self.JWT_SECRET or self.SECRET_KEY
+        is_default = (
+            not effective_jwt or
+            "change-in-prod" in effective_jwt or
+            "change-this" in effective_jwt or
+            effective_jwt == "disaster-healthcare-ai-super-secret-key-change-in-prod"
+        )
+        if is_production:
+            if is_default or not (self.JWT_SECRET_KEY or self.JWT_SECRET):
+                raise ValueError(
+                    "Security Validation Error: In production mode (APP_ENV=production), "
+                    "a secure non-default JWT_SECRET_KEY (or JWT_SECRET) must be explicitly configured."
+                )
             if not self.ADMIN_PASSWORD:
-                raise ValueError("ADMIN_PASSWORD environment variable must be explicitly configured in non-development mode.")
+                raise ValueError(
+                    "Security Validation Error: In production mode (APP_ENV=production), "
+                    "an explicit ADMIN_PASSWORD must be configured."
+                )
 
     # CORS configuration
     CORS_ORIGINS: Union[List[str], str] = Field(

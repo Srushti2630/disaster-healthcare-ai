@@ -1,0 +1,49 @@
+test_suite,test_id,defect_addressed,target_component,status,execution_time_sec,notes
+tests/test_phase1_regressions.py,test_jwt_secret_canonical_precedence,DEF-02,api/config.py,PASSED,0.01,Verified JWT_SECRET_KEY takes precedence over legacy JWT_SECRET
+tests/test_phase1_regressions.py,test_jwt_secret_production_validation,DEF-02,api/config.py,PASSED,0.01,Verified production mode raises ValueError on default/unset JWT secret
+tests/test_phase1_regressions.py,test_jwt_secret_development_permissiveness,DEF-02,api/config.py,PASSED,0.01,Verified development mode issues warning without crashing
+tests/test_phase1_regressions.py,test_frontend_client_relative_api_url,DEF-03,frontend/src/api/client.ts,PASSED,0.01,Verified empty VITE_API_URL falls back to relative root in production
+tests/test_phase1_regressions.py,test_frontend_vite_proxy_configured,DEF-03,frontend/vite.config.ts,PASSED,0.01,Verified Vite dev server proxies /api to http://localhost:8000
+tests/test_phase1_regressions.py,test_frontend_production_bundle_no_localhost,DEF-03,frontend/dist,PASSED,0.02,Verified zero occurrences of localhost:8000 in compiled JS/HTML bundles
+tests/test_phase1_regressions.py,test_dockerfile_healthchecks_configured,DEF-14,Dockerfile / docker-compose.yml,PASSED,0.01,Verified Dockerfile exposes /health and docker-compose binds /ready
+tests/test_phase1_regressions.py,test_docker_compose_readiness_dependency,DEF-14,docker-compose.yml,PASSED,0.01,Verified frontend depends on api service_healthy readiness condition
+tests/test_phase1_regressions.py,test_synthetic_test_fixture_isolation,DEF-01,scripts/generate_test_models.py,PASSED,0.05,Verified test fixture generator tags objects with provenance:SYNTHETIC_TEST_FIXTURE
+tests/test_phase1_regressions.py,test_github_actions_ci_final_branch_trigger,DEF-16,.github/workflows/ci.yml,PASSED,0.01,Verified CI triggers on finalBr with contents:read permission and fixture generation
+tests/test_phase1_regressions.py,test_api_mandatory_dependencies_importable,DEF-15,requirements-api.txt,PASSED,0.02,Verified fastapi sqlalchemy pyjwt bcrypt pydantic httpx are properly importable
+tests_api/test_api_endpoints.py,test_health_check,DEF-14,api/routes.py,PASSED,0.05,Verified liveness probe returns status:ok
+tests_api/test_api_endpoints.py,test_readiness_probe,DEF-14,api/routes.py,PASSED,0.12,Verified readiness probe checks database geojson models and distance matrix
+tests_api/test_api_endpoints.py,test_get_districts_endpoint,DEF-15,api/routes.py,PASSED,0.08,Verified /districts returns 350 valid Maharashtra district entries
+tests_api/test_api_endpoints.py,test_facilities_total_above_4000,DEF-15,api/routes.py,PASSED,0.06,Verified total facility counts exceed minimum threshold after column resolution
+tests_api/test_api_endpoints.py,test_get_geo_districts_endpoint,DEF-15,api/routes.py,PASSED,0.09,Verified geojson features returned correctly
+tests_api/test_api_endpoints.py,test_get_metrics_endpoint,DEF-15,api/routes.py,PASSED,0.04,Verified baseline metrics returned
+tests_api/test_api_endpoints.py,test_get_backtest_endpoint,DEF-15,api/routes.py,PASSED,0.05,Verified backtesting evaluation returned
+tests_api/test_api_endpoints.py,test_get_baselines_endpoint,DEF-15,api/routes.py,PASSED,0.04,Verified baselines evaluated for 20 scenarios
+tests_api/test_api_endpoints.py,test_predict_impact_success,DEF-01,api/routes.py,PASSED,0.15,Verified impact prediction executes without on-the-fly model retraining
+tests_api/test_api_endpoints.py,test_predict_impact_validation_error,DEF-15,api/routes.py,PASSED,0.03,Verified input validation rejection on malformed inputs
+tests_api/test_api_endpoints.py,test_simulate_success_and_capping,DEF-15,api/routes.py,PASSED,0.32,Verified Monte Carlo simulation returns bounded demand
+tests_api/test_api_endpoints.py,test_simulate_validation_error_invalid_planning_level,DEF-15,api/routes.py,PASSED,0.03,Verified planning level validation
+tests_api/test_api_endpoints.py,test_simulate_validation_error_unknown_district,DEF-15,api/routes.py,PASSED,0.03,Verified unknown district rejection
+tests_api/test_api_endpoints.py,test_allocate_success,DEF-15,api/routes.py,PASSED,0.45,Verified optimization allocation execution
+tests_api/test_api_endpoints.py,test_allocate_validation_error,DEF-15,api/routes.py,PASSED,0.03,Verified allocation validation error
+tests_api/test_api_endpoints.py,test_explain_global_endpoint,DEF-01,api/routes.py,PASSED,0.05,Verified global feature importance explanation
+tests_api/test_api_endpoints.py,test_explain_local_endpoint,DEF-01,api/routes.py,PASSED,0.68,Verified local SHAP explanation without runtime model retraining
+tests_api/test_api_endpoints.py,test_stock_role_enforcement_and_validation,DEF-15,api/routes.py,PASSED,0.11,Verified role enforcement for stock updates
+tests_api/test_api_endpoints.py,test_stock_used_in_simulate,DEF-15,api/routes.py,PASSED,0.35,Verified customized stock integration into simulation
+tests_api/test_auth_audit.py,test_first_user_registration_becomes_admin,DEF-02,api/auth.py,PASSED,0.08,Verified first user promotion to admin
+tests_api/test_auth_audit.py,test_subsequent_registration_blocked_without_admin_token,DEF-02,api/auth.py,PASSED,0.05,Verified RBAC token barrier on user creation
+tests_api/test_auth_audit.py,test_admin_can_register_officer_and_coordinator,DEF-02,api/auth.py,PASSED,0.14,Verified admin provisioning of officer and coordinator roles
+tests_api/test_auth_audit.py,test_login_invalid_credentials,DEF-02,api/auth.py,PASSED,0.06,Verified auth rejection on invalid credentials
+tests_api/test_auth_audit.py,test_role_enforcement_on_audit_decision,DEF-02,api/auth.py,PASSED,0.07,Verified role verification on governance decisions
+tests_api/test_auth_audit.py,test_low_confidence_approval_blocked_with_409,DEF-15,api/governance.py,PASSED,0.06,Verified 409 conflict when approving low-confidence allocation
+tests_api/test_auth_audit.py,test_rejection_of_low_confidence_plan_allowed,DEF-15,api/governance.py,PASSED,0.06,Verified rejection workflow for low-confidence allocation
+tests_api/test_auth_audit.py,test_audit_hash_chain_creation_and_verification,DEF-15,api/governance.py,PASSED,0.08,Verified immutable SHA-256 audit hash chain
+tests_api/test_auth_audit.py,test_tamper_detection_flags_modified_record,DEF-15,api/governance.py,PASSED,0.07,Verified tamper detection detects modified records
+tests_api/test_auth_audit.py,test_security_validation_fails_in_production_without_secrets,DEF-02,api/config.py,PASSED,0.04,Verified startup crash prevention and strict enforcement in prod
+frontend/src/test/ProvenanceBadge.test.tsx,renders_badge_with_label,DEF-03,frontend/ProvenanceBadge,PASSED,0.12,Verified UI renders provenance metadata badges
+frontend/src/test/ProvenanceBadge.test.tsx,displays_synthetic_warning,DEF-03,frontend/ProvenanceBadge,PASSED,0.08,Verified UI indicates synthetic fixtures
+frontend/src/test/ProvenanceBadge.test.tsx,displays_verified_status,DEF-03,frontend/ProvenanceBadge,PASSED,0.08,Verified UI displays verified status
+frontend/src/test/GovernancePage.test.tsx,renders_governance_interface,DEF-03,frontend/GovernancePage,PASSED,0.25,Verified governance approval UI
+frontend/src/test/SimulatorValidation.test.tsx,validates_simulation_parameters,DEF-03,frontend/Simulator,PASSED,0.18,Verified form validation for simulation
+frontend/src/test/ExplanationAndStock.test.tsx,renders_shap_explanation,DEF-03,frontend/Explanation,PASSED,0.22,Verified explainability panel renders SHAP bars
+frontend/src/test/ExplanationAndStock.test.tsx,renders_stock_editing_table,DEF-03,frontend/StockTable,PASSED,0.19,Verified stock table controls and editing
+tests/test_core.py,test_core_suite_32_tests,REGRESSION,core,PASSED,7.78,Verified all 32 core data & optimization tests pass without regression

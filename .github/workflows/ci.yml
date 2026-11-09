@@ -2,9 +2,12 @@ name: Disaster Healthcare AI CI
 
 on:
   push:
-    branches: [ master, main ]
+    branches: [ master, main, finalBr ]
   pull_request:
-    branches: [ master, main ]
+    branches: [ master, main, finalBr ]
+
+permissions:
+  contents: read
 
 jobs:
   backend-test:
@@ -32,15 +35,15 @@ jobs:
         run: |
           ruff check src/ tests/ api/ tests_api/ app.py
 
-      - name: Execute Pipeline Verification
+      - name: Ensure Test Model Fixtures for CI
         run: |
-          python run_all.py
+          python scripts/generate_test_models.py
 
-      - name: Run Core Pytest Suite (25 Tests)
+      - name: Run Core Pytest Suite (32 Tests)
         run: |
           pytest tests/test_core.py -v
 
-      - name: Run API & Auth/Audit Pytest Suite (23 Tests)
+      - name: Run API & Auth/Audit Pytest Suite (29 Tests)
         run: |
           pytest tests_api/ -v
 
@@ -73,6 +76,16 @@ jobs:
         working-directory: ./frontend
         run: |
           npm run build
+
+      - name: Verify No Localhost in Production Bundle (DEF-03)
+        working-directory: ./frontend
+        run: |
+          if grep -rn "localhost:8000" dist/; then
+            echo "ERROR: Hardcoded localhost:8000 found in built production bundle!"
+            exit 1
+          else
+            echo "SUCCESS: Production bundle verified free of hardcoded localhost URLs."
+          fi
 
   docker-build:
     name: Container Image Build Verification

@@ -234,17 +234,20 @@ def test_stock_role_enforcement_and_validation(client):
         unauth_res = anon_client.post("/api/stock", json={"stocks": {"Pune": {"antibiotics": 50000}}})
         assert unauth_res.status_code == 401
 
-    # 2. Viewer role -> 403
+    # 2. Viewer role -> 403 (registered by admin client)
+    reg_res = client.post("/api/auth/register", json={
+        "email": "viewer_stock_test@mahadisaster.gov.in",
+        "password": "ViewerPassword123!",
+        "role": "viewer"
+    })
+    assert reg_res.status_code == 201
+
     with TestClient(app) as viewer_client:
-        viewer_client.post("/api/auth/register", json={
-            "email": "viewer_stock_test@mahadisaster.gov.in",
-            "password": "ViewerPassword123!",
-            "role": "viewer"
-        })
         login_res = viewer_client.post("/api/auth/login", json={
             "email": "viewer_stock_test@mahadisaster.gov.in",
             "password": "ViewerPassword123!"
         })
+        assert login_res.status_code == 200
         token = login_res.json()["access_token"]
         viewer_client.headers["Authorization"] = f"Bearer {token}"
         forbidden_res = viewer_client.post("/api/stock", json={"stocks": {"Pune": {"antibiotics": 50000}}})
