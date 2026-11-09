@@ -1,0 +1,26 @@
+component_category,item_name,manifest_version_spec,installed_or_runtime_version,lockfile_or_tracking_status,notes
+System Runtime,Operating System,Darwin,macOS-26.6.2-x86_64-i386-64bit-Mach-O (x86_64),Host Environment,macOS Darwin arm64 architecture
+System Runtime,Host System Python,3.13+,Python 3.14.2,System Path (/usr/local/bin/python3),x86_64 binary; incompatible with arm64 .venv C-extensions
+System Runtime,Native ARM64 Python (Homebrew),3.13+,Python 3.13.3,Homebrew (/opt/homebrew/bin/python3),Required runtime for executing tests with .venv arm64 C-extensions
+System Runtime,Node.js,^18.0.0 || ^20.0.0 || ^22.0.0,v22.23.2,Host Binary,Node runtime used for Vite build and Vitest
+System Runtime,npm Package Manager,>=9.0.0,10.9.8,Host Binary,npm package manager
+VCS / Git,Current Git Branch,finalBr,finalBr,Active Worktree,Protected implementation branch
+VCS / Git,Current Git Commit,660f873 (Certified Baseline),660f87391ecf9904d7f2eca7459102a89e7f0421,Commit SHA,Branched directly from testing baseline
+Database,disaster_healthcare.db,SQLite 3,File size: 53248 bytes,Untracked (gitignored),Default development SQLite database
+Dependency Manifest,Python Core ML Manifest,requirements.txt (23 packages),Present,NO LOCKFILE (pip requirements format),"Contains numpy, pandas, scikit-learn, xgboost, shap, ortools"
+Dependency Manifest,Python Backend API Manifest,requirements-api.txt (8 packages),Present,NO LOCKFILE (pip requirements format),"Contains fastapi, uvicorn, sqlalchemy, bcrypt, pyjwt. NOT installed in current .venv"
+Dependency Manifest,Frontend Manifest & Lockfile,frontend/package.json,package-lock.json present (173679 bytes),LOCKED (npm lockfile v3),Dependencies locked via package-lock.json
+Model Artifact,final_model.joblib,Serialized Binary (.joblib / .json),1820 bytes,Present on Disk,Operational champion clinical forecaster
+Model Artifact,final_model_metadata.json,Serialized Binary (.joblib / .json),1983 bytes,Present on Disk,Metadata and holdout metrics for champion model
+Model Artifact,models/conformal_quantiles.joblib,Serialized Binary (.joblib / .json),21 bytes,Present on Disk,Conformal calibration non-conformity quantiles
+Model Artifact,models/demand_model.joblib,Serialized Binary (.joblib / .json),246405 bytes,Present on Disk,Pre-trained demand model
+Model Artifact,models/impact_models.joblib,Serialized Binary (.joblib / .json),384369 bytes,Present on Disk,EM-DAT disaster impact model bundle
+Model Artifact,models/pipeline_bundle.joblib,Serialized Binary (.joblib / .json),24428591 bytes,Present on Disk,Full preprocessing and transformation pipeline
+Model Artifact,models/shap_explainer.joblib,Serialized Binary (.joblib / .json),394132 bytes,Present on Disk,Precomputed KernelSHAP explainer object
+Model Artifact,models/shortage_classifier.joblib,Serialized Binary (.joblib / .json),6652443 bytes,Present on Disk,Surrogate shortage risk classifier
+Python Package (.venv),numpy,requirements.txt,2.5.3,Installed in .venv,Verified operational in ARM64 environment
+Python Package (.venv),pandas,requirements.txt,3.0.6,Installed in .venv,Verified operational in ARM64 environment
+Python Package (.venv),scikit-learn,requirements.txt,1.9.1,Installed in .venv,Verified operational in ARM64 environment
+Python Package (.venv),xgboost,requirements.txt,3.4.1,Installed in .venv,Verified operational in ARM64 environment
+Python Package (.venv),shap,requirements.txt,0.52.0,Installed in .venv,Verified operational in ARM64 environment
+Python Package (.venv),ortools,requirements.txt,9.15.6755,Installed in .venv,Verified operational in ARM64 environment
