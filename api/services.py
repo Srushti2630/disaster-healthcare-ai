@@ -389,25 +389,36 @@ def explain_prediction_service(app_state: Any, req: ImpactPredictionRequest) -> 
 
     if ridge_model is None:
         try:
-            emdat_path = settings.PROCESSED_DIR / "emdat_cleaned.csv"
+            emdat_path = settings.PROCESSED_DIR / "emdat_events.csv"
+            if not emdat_path.exists():
+                emdat_path = settings.PROCESSED_DIR / "emdat_cleaned.csv"
             if emdat_path.exists() and preprocessor is not None:
                 emdat_df = pd.read_csv(emdat_path)
+                valid_df = emdat_df[emdat_df["total_affected"].notna() & (emdat_df["total_affected"] > 0)].copy() if "total_affected" in emdat_df.columns else emdat_df
                 feat_num = bundle.get("feature_cols_num", ["magnitude", "start_year", "start_month", "decade"])
                 feat_cat = bundle.get("feature_cols_cat", ["disaster_type", "disaster_subtype", "scope"])
                 for c in feat_num:
-                    if c not in emdat_df.columns:
-                        emdat_df[c] = 0.0
+                    if c not in valid_df.columns:
+                        valid_df[c] = 0.0
+                    else:
+                        valid_df[c] = valid_df[c].fillna(0.0)
                 for c in feat_cat:
-                    if c not in emdat_df.columns:
-                        emdat_df[c] = "Unknown"
-                target_col = "target" if "target" in emdat_df.columns else "log_affected"
-                if target_col in emdat_df.columns:
-                    X_all = preprocessor.transform(emdat_df[feat_num + feat_cat])
-                    y_all = emdat_df[target_col].values
+                    if c not in valid_df.columns:
+                        valid_df[c] = "Unknown"
+                    else:
+                        valid_df[c] = valid_df[c].fillna("Unknown").astype(str)
+                target_col = "target" if "target" in valid_df.columns else "log_affected"
+                if target_col not in valid_df.columns and "total_affected" in valid_df.columns:
+                    valid_df["target"] = np.log1p(valid_df["total_affected"])
+                    target_col = "target"
+                if target_col in valid_df.columns:
+                    X_all = preprocessor.transform(valid_df[feat_num + feat_cat])
+                    y_all = valid_df[target_col].values
                     from sklearn.linear_model import Ridge
                     ridge_model = Ridge(alpha=1.0)
                     ridge_model.fit(X_all, y_all)
                     bundle["ridge_model"] = ridge_model
+                    logger.info("Successfully fit fallback Ridge model on emdat_events.csv")
         except Exception as e:
             logger.warning(f"Could not fit fallback Ridge model: {e}")
 
