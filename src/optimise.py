@@ -219,7 +219,7 @@ def solve_resource_allocation(
 
         # Constrain Stage 1 objective value with numerical tolerance
         unmet_weighted_sum = solver.Sum(unmet[j, m] * MEDICINE_CRITICALITY.get(m, 1.0) for j in districts for m in medicines)
-        solver.Add(unmet_weighted_sum <= optimal_weighted_unmet + 1e-4, "lexicographic_unmet_bound")
+        solver.Add(unmet_weighted_sum <= optimal_weighted_unmet, "lexicographic_unmet_bound")
 
         # -------------------------------------------------------------
         # STAGE 2: Minimize transport costs and maximize fairness
@@ -245,6 +245,30 @@ def solve_resource_allocation(
 
         if status not in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
             # If Stage 2 fails, do not return unoptimized plan
+            solve_duration_ms = (time.time() - start_time) * 1000
+            summary = {
+                "solve_status": "INFEASIBLE",
+                "stage1_status": "OPTIMAL",
+                "solve_time_ms": float(round(solve_duration_ms, 2)),
+                "total_transferred_units": 0,
+                "total_transport_cost": 0.0,
+                "unmet_demand_before": 0.0,
+                "unmet_demand_after": 0.0,
+                "demand_reduction_pct": 0.0,
+                "min_coverage_before": 0.0,
+                "min_coverage_after": 0.0,
+                "active_routes_count": 0,
+                "fairness_theta": 0.0,
+                "eligible_fairness_pairs": len(eligible_pairs),
+                "lexicographic_optimization": True,
+                "optimal_weighted_unmet": optimal_weighted_unmet
+            }
+            cols = ["source_region", "dest_region", "medicine", "quantity", "distance_km", "cost", "priority", "confidence"]
+            return pd.DataFrame(columns=cols), summary
+
+        # Method D: Post-solve independent verification that Stage 2 strictly preserves Stage 1 clinical optimum
+        stage2_weighted_unmet = float(sum(unmet[j, m].solution_value() * MEDICINE_CRITICALITY.get(m, 1.0) for j in districts for m in medicines))
+        if stage2_weighted_unmet > optimal_weighted_unmet + 1e-6:
             solve_duration_ms = (time.time() - start_time) * 1000
             summary = {
                 "solve_status": "INFEASIBLE",

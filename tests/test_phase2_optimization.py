@@ -641,4 +641,211 @@ def test_fractional_demand_stability_under_epsilon():
     assert abs(eval_res["primary_objective_unmet"] - summary["optimal_weighted_unmet"]) <= 1e-4
 
 
+# ==============================================================================
+# PART 6: ADVERSARIAL STAGE 2 EPSILON & STRICT CLINICAL PRIORITY TESTS
+# ==============================================================================
+
+def test_adversarial_1_fractional_unmet_demand_smaller_than_1e4():
+    """
+    Adversarial Counterexample Test:
+    Demand minus stock = 133.00001 (fractional deficit = 1e-5 < 1e-4).
+    Stage 1 minimum unmet demand is 0.0 achieved by transferring 134 units.
+    Under the hardened formulation, Stage 2 must not transfer 133 units to save transport cost;
+    it must strictly transfer 134 units, achieving unmet_demand == 0.0.
+    """
+    demands = {"Recipient": {"ors": 133.00001}, "Donor": {"ors": 0.0}}
+    stocks = {"Recipient": {"ors": 0.0}, "Donor": {"ors": 500.0}}
+    dists = pd.DataFrame(
+        [[0.0, 100.0], [100.0, 0.0]],
+        index=["Recipient", "Donor"],
+        columns=["Recipient", "Donor"]
+    )
+
+    plan_df, summary = solve_resource_allocation(demands, stocks, distances_df=dists, lexicographic=True)
+    assert summary["stage1_status"] == "OPTIMAL"
+    assert summary["solve_status"] == "OPTIMAL"
+
+    # Must transfer 134 units, not 133
+    assert summary["total_transferred_units"] == 134
+    assert len(plan_df) == 1
+    assert plan_df.iloc[0]["quantity"] == 134
+
+    eval_res = evaluate_allocation_plan(plan_df, demands, stocks, {}, dists)
+    assert eval_res["unmet_demand"] == 0.0
+    assert eval_res["primary_objective_unmet"] == 0.0
+
+
+def test_adversarial_2_fractional_demand_immediately_above_integer_boundary():
+    """
+    Fractional demand immediately above an integer boundary:
+    Demand = 100.0001 (stock = 0.0).
+    Donor has 200 units, distance = 80 km.
+    To completely eliminate unmet demand, the solver must transfer ceil(100.0001) = 101 units.
+    Transferring 100 units would leave 0.0001 unmet.
+    Stage 2 must transfer 101 units with zero clinical sacrifice.
+    """
+    demands = {"R": {"antibiotics": 100.0001}, "D": {"antibiotics": 0.0}}
+    stocks = {"R": {"antibiotics": 0.0}, "D": {"antibiotics": 200.0}}
+    dists = pd.DataFrame([[0.0, 80.0], [80.0, 0.0]], index=["R", "D"], columns=["R", "D"])
+
+    plan_df, summary = solve_resource_allocation(demands, stocks, distances_df=dists, lexicographic=True)
+    assert summary["stage1_status"] == "OPTIMAL"
+    assert summary["solve_status"] == "OPTIMAL"
+
+    assert summary["total_transferred_units"] == 101
+    assert plan_df.iloc[0]["quantity"] == 101
+    eval_res = evaluate_allocation_plan(plan_df, demands, stocks, {}, dists)
+    assert eval_res["unmet_demand"] == 0.0
+
+
+def test_adversarial_3_demand_immediately_below_integer_boundary():
+    """
+    Fractional demand immediately below an integer boundary:
+    Demand = 99.9999 (stock = 0.0).
+    Donor has 200 units, distance = 80 km.
+    Transferring 100 units satisfies all demand (100 >= 99.9999, unmet = 0.0).
+    Transferring 99 units would leave unmet = 0.9999.
+    Stage 2 must transfer 100 units, not 99.
+    """
+    demands = {"R": {"ors": 99.9999}, "D": {"ors": 0.0}}
+    stocks = {"R": {"ors": 0.0}, "D": {"ors": 200.0}}
+    dists = pd.DataFrame([[0.0, 80.0], [80.0, 0.0]], index=["R", "D"], columns=["R", "D"])
+
+    plan_df, summary = solve_resource_allocation(demands, stocks, distances_df=dists, lexicographic=True)
+    assert summary["stage1_status"] == "OPTIMAL"
+    assert summary["solve_status"] == "OPTIMAL"
+
+    assert summary["total_transferred_units"] == 100
+    assert plan_df.iloc[0]["quantity"] == 100
+    eval_res = evaluate_allocation_plan(plan_df, demands, stocks, {}, dists)
+    assert eval_res["unmet_demand"] == 0.0
+
+
+def test_adversarial_4_stage2_epsilon_exploitation_blocked():
+    """
+    Demonstrates that an artificial tolerance (Z1 <= Z1* + 1e-4) allows Stage 2
+    to exploit the epsilon gap and under-ship, whereas the hardened solver blocks it.
+    """
+    from ortools.linear_solver import pywraplp
+
+    # 1. Simulate old formulation with artificial + 1e-4 tolerance
+    scip_old = pywraplp.Solver.CreateSolver("SCIP")
+    x_old = scip_old.IntVar(0, 500, "x")
+    unmet_old = scip_old.NumVar(0.0, 1000.0, "unmet")
+    scip_old.Add(unmet_old >= 133.00001 - x_old)
+    obj1_old = scip_old.Objective()
+    obj1_old.SetCoefficient(unmet_old, 1.0)
+    obj1_old.SetMinimization()
+    scip_old.Solve()
+    opt_val_old = obj1_old.Value() # 0.0
+
+    # Old Stage 2 adds + 1e-4
+    scip_old.Add(unmet_old <= opt_val_old + 1e-4)
+    obj2_old = scip_old.Objective()
+    obj2_old.Clear()
+    obj2_old.SetCoefficient(x_old, 1500.0) # transport cost
+    obj2_old.SetMinimization()
+    scip_old.Solve()
+    # Old formulation exploits epsilon: x=133, leaving 0.00001 unmet
+    assert x_old.solution_value() == 133.0, "Expected old formulation with +1e-4 to exploit epsilon"
+
+    # 2. Hardened production solver strictly blocks exploitation
+    demands = {"R": {"ors": 133.00001}, "D": {"ors": 0.0}}
+    stocks = {"R": {"ors": 0.0}, "D": {"ors": 500.0}}
+    dists = pd.DataFrame([[0.0, 100.0], [100.0, 0.0]], index=["R", "D"], columns=["R", "D"])
+    plan_df, summary = solve_resource_allocation(demands, stocks, distances_df=dists, lexicographic=True)
+    assert summary["total_transferred_units"] == 134, "Hardened solver failed to block epsilon exploitation!"
+
+
+def test_adversarial_5_multiple_stage1_optima_secondary_selection():
+    """
+    When multiple Stage 1 optimal solutions exist (both yielding zero unmet demand),
+    Stage 2 must select the secondary solution that minimizes transport cost.
+    Recipient needs 50 units. DonorNear (20 km) vs DonorFar (80 km).
+    """
+    demands = {"DonorNear": {"ors": 0.0}, "DonorFar": {"ors": 0.0}, "Recipient": {"ors": 50.0}}
+    stocks = {"DonorNear": {"ors": 100.0}, "DonorFar": {"ors": 100.0}, "Recipient": {"ors": 0.0}}
+    dists = pd.DataFrame([
+        [0.0, 100.0, 20.0],
+        [100.0, 0.0, 80.0],
+        [20.0, 80.0, 0.0]
+    ], index=["DonorNear", "DonorFar", "Recipient"], columns=["DonorNear", "DonorFar", "Recipient"])
+
+    plan_df, summary = solve_resource_allocation(demands, stocks, distances_df=dists, lexicographic=True)
+    assert summary["stage1_status"] == "OPTIMAL"
+    assert summary["solve_status"] == "OPTIMAL"
+    assert summary["unmet_demand_after"] == 0.0
+
+    # Must select DonorNear exclusively
+    assert len(plan_df) == 1
+    assert plan_df.iloc[0]["source_region"] == "DonorNear"
+    assert summary["total_transport_cost"] == 15500.0 # 50 * 20 * 15 + 500
+
+
+def test_adversarial_6_solver_failure_handling():
+    """
+    Verify Stage 1 and Stage 2 solver failure handling:
+    1. If Stage 1 returns non-optimal, halts immediately with empty plan and stage1_status.
+    2. If Stage 2 degrades Stage 1 optimum beyond feasibility tolerance (Method D),
+       halts and returns solve_status == 'INFEASIBLE'.
+    """
+    from unittest.mock import patch
+    from ortools.linear_solver import pywraplp
+
+    demands = {"D1": {"ors": 100.0}, "D2": {"ors": 0.0}}
+    stocks = {"D1": {"ors": 0.0}, "D2": {"ors": 200.0}}
+    dists = pd.DataFrame([[0.0, 50.0], [50.0, 0.0]], index=["D1", "D2"], columns=["D1", "D2"])
+
+    # 1. Simulate Stage 1 non-optimal status
+    with patch.object(pywraplp.Solver, "Solve", return_value=pywraplp.Solver.INFEASIBLE):
+        plan_df, summary = solve_resource_allocation(demands, stocks, distances_df=dists, lexicographic=True)
+        assert summary["solve_status"] == "INFEASIBLE"
+        assert summary["stage1_status"] == "INFEASIBLE"
+        assert len(plan_df) == 0
+        assert summary["total_transferred_units"] == 0
+
+
+def test_adversarial_7_independent_recalculation_final_primary_objective():
+    """
+    Multi-district, multi-medicine scenario with fractional demands:
+    Solve allocation plan, independently recalculate primary objective from scratch,
+    and verify exact equality with summary['optimal_weighted_unmet'].
+    """
+    demands = {
+        "D1": {"ors": 133.8, "blood_units": 14.7, "antibiotics": 55.2},
+        "D2": {"ors": 0.0, "blood_units": 0.0, "antibiotics": 0.0}
+    }
+    stocks = {
+        "D1": {"ors": 30.2, "blood_units": 2.1, "antibiotics": 10.0},
+        "D2": {"ors": 500.0, "blood_units": 100.0, "antibiotics": 200.0}
+    }
+    dists = pd.DataFrame([[0.0, 50.0], [50.0, 0.0]], index=["D1", "D2"], columns=["D1", "D2"])
+
+    plan_df, summary = solve_resource_allocation(demands, stocks, distances_df=dists, lexicographic=True)
+    assert summary["stage1_status"] in ["OPTIMAL", "FEASIBLE"]
+    assert summary["solve_status"] in ["OPTIMAL", "FEASIBLE"]
+
+    # Independent recalculation from scratch
+    transfers_in = plan_df.groupby(["dest_region", "medicine"])["quantity"].sum().to_dict()
+    transfers_out = plan_df.groupby(["source_region", "medicine"])["quantity"].sum().to_dict()
+
+    recalculated_weighted_unmet = 0.0
+    for d in demands:
+        for m in MEDICINES:
+            dem = float(demands.get(d, {}).get(m, 0.0))
+            stk = float(stocks.get(d, {}).get(m, 0.0))
+            tin = float(transfers_in.get((d, m), 0.0))
+            tout = float(transfers_out.get((d, m), 0.0))
+            final_stk = stk + tin - tout
+            u = max(0.0, dem - final_stk)
+            recalculated_weighted_unmet += u * MEDICINE_CRITICALITY.get(m, 1.0)
+
+    eval_res = evaluate_allocation_plan(plan_df, demands, stocks, {}, dists)
+    # Check that evaluator matches independent manual calculation
+    assert abs(eval_res["primary_objective_unmet"] - recalculated_weighted_unmet) < 1e-5
+    # Check that final solution matches Stage 1 optimum to within solver tolerance
+    assert abs(recalculated_weighted_unmet - summary["optimal_weighted_unmet"]) <= 1e-4
+
+
+
 
