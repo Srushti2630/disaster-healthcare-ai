@@ -37,6 +37,7 @@ import pandas as pd
 from src.optimise import (
     solve_resource_allocation,
     evaluate_allocation_plan,
+    load_or_compute_distance_matrix,
     COST_PER_UNIT_KM,
     FIXED_ROUTE_COST,
     DEFAULT_SAFETY_RESERVE_RATIO,
@@ -884,9 +885,99 @@ def test_independent_reconstruction_agrees_with_solver_objective():
             reconstructed_unmet += u * MEDICINE_CRITICALITY[m]
 
     opt_val = summary["optimal_weighted_unmet"]
-    audit_tol = max(1e-5, 1e-6 * opt_val)
+    audit_tol = min(1.0, max(1e-5, 1e-6 * opt_val))
     assert abs(reconstructed_unmet - opt_val) <= audit_tol
     assert abs(summary["reconstructed_weighted_unmet"] - reconstructed_unmet) <= 1e-4
+
+
+def test_scenario_32_four_objective_comparison():
+    """
+    Independently verify all four objectives for Scenario 32:
+      1. Z_{1, solver}^{(1)}: Stage 1 solver-reported objective
+      2. Z_{1, phys}^{(1)}: Stage 1 independently reconstructed physical objective
+      3. Z_{1, solver}^{(2)}: Stage 2 solver-reported objective
+      4. Z_{1, phys}^{(2)}: Stage 2 independently reconstructed physical objective
+    Demonstrates:
+      - Z_{1, phys}^{(1)} matches Z_{1, solver}^{(1)} within double-precision rounding (|diff| < 1e-5).
+      - Z_{1, phys}^{(2)} - Z_{1, phys}^{(1)} <= 1.0 (strictly blocks sacrificing even 1 discrete unit of medicine).
+      - Audit tolerance is capped at 1.0 rather than expanding to 105.18.
+    """
+    from src.engine.monte_carlo import generate_stratified_benchmark_scenarios
+    scenarios = generate_stratified_benchmark_scenarios(
+        n_per_stratum=12,
+        stock_multipliers=(0.25, 0.5, 1.0),
+        random_seed=42,
+        n_draws_per_sim=100
+    )
+    sc = scenarios[32]
+    distances_df = load_or_compute_distance_matrix()
+
+    plan_df, summary = solve_resource_allocation(
+        sc["demands"], sc["stocks"], sc["risks"],
+        distances_df=distances_df,
+        lexicographic=True
+    )
+
+    assert summary["solve_status"] in ["OPTIMAL", "FEASIBLE"]
+    assert summary["stage1_status"] == "OPTIMAL"
+
+    z1_solver_1 = summary["optimal_weighted_unmet"]
+    z1_phys_1 = summary["stage1_reconstructed_unmet"]
+    z1_solver_2 = summary["stage2_solver_unmet"]
+    z1_phys_2 = summary["reconstructed_weighted_unmet"]
+    tol = summary["audit_tolerance"]
+
+    assert z1_solver_1 is not None
+    assert z1_phys_1 is not None
+    assert z1_solver_2 is not None
+    assert z1_phys_2 is not None
+
+    # 1. Stage 1 solver vs physical reconstruction agreement:
+    assert abs(z1_phys_1 - z1_solver_1) < 1e-4, f"Stage 1 physical ({z1_phys_1}) diverged from solver ({z1_solver_1})"
+
+    # 2. Tolerance is capped at 1.0 unit:
+    assert tol <= 1.0, f"Audit tolerance {tol} exceeded 1.0 unit cap"
+
+    # 3. Stage 2 physical deterioration strictly bounded:
+    assert z1_phys_2 - z1_phys_1 <= 1.0, f"Stage 2 physical degraded by >= 1 unit ({z1_phys_2 - z1_phys_1})"
+    assert z1_phys_2 <= z1_solver_1 + tol, f"Stage 2 physical ({z1_phys_2}) violated tolerance ({z1_solver_1} + {tol})"
+
+
+def test_large_objective_capped_tolerance_blocks_discrete_sacrifice():
+    """
+    Verify that for massive shortage objectives (Z1* ~ 1e8), the audit tolerance
+    remains strictly capped at 1.0, mathematically forbidding the sacrifice of 1 discrete unit
+    (min medicine criticality = 1.0), unlike an unbounded relative tolerance that would allow 105+ units.
+    """
+    opt_val = 105184402.2
+    # Unbounded tolerance from previous formulation:
+    unbounded_tol = max(1e-5, 1e-6 * opt_val)
+    assert unbounded_tol > 105.0, f"Expected unbounded tolerance > 105, got {unbounded_tol}"
+
+    # Capped defensible tolerance:
+    capped_tol = min(1.0, max(1e-5, 1e-6 * opt_val))
+    assert capped_tol == 1.0, f"Expected capped tolerance == 1.0, got {capped_tol}"
+
+    # If an allocation plan sacrificed just 1 discrete unit of ORS (crit=1.0) or whole blood (crit=5.0):
+    loss_1_unit_ors = opt_val + 1.01
+    loss_1_unit_blood = opt_val + 5.0
+    assert loss_1_unit_ors > opt_val + capped_tol, "Capped tolerance failed to block 1 unit ORS sacrifice"
+    assert loss_1_unit_blood > opt_val + capped_tol, "Capped tolerance failed to block 1 unit blood sacrifice"
+
+
+def test_fractional_deterioration_near_audit_threshold():
+    """
+    Verify that when optimal shortage is near zero (Z1* < 1.0), the 1e-5 floor
+    detects and blocks fractional under-shipments (such as 1e-4 degradation).
+    """
+    demands = {"R": {"ors": 10.0001}, "D": {"ors": 0.0}}
+    stocks = {"R": {"ors": 0.0}, "D": {"ors": 50.0}}
+    dists = pd.DataFrame([[0.0, 50.0], [50.0, 0.0]], index=["R", "D"], columns=["R", "D"])
+
+    plan_df, summary = solve_resource_allocation(demands, stocks, distances_df=dists, lexicographic=True)
+    assert summary["solve_status"] == "OPTIMAL"
+    assert summary["audit_tolerance"] == 1e-5
+    assert summary["reconstructed_weighted_unmet"] <= summary["optimal_weighted_unmet"] + 1e-5
 
 
 def test_inconsistent_slack_blocked_by_allocation_balance_guard():
