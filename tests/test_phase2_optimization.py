@@ -39,6 +39,7 @@ from src.optimise import (
     solve_resource_allocation,
     evaluate_allocation_plan,
     compute_exact_physical_unmet,
+    _extract_integer_shipment,
     load_or_compute_distance_matrix,
     COST_PER_UNIT_KM,
     FIXED_ROUTE_COST,
@@ -419,6 +420,22 @@ def test_no_self_transfers_and_strict_integrality():
     demands = {"D1": {"iv_fluids": 0.0}, "D2": {"iv_fluids": 333.3}}
     stocks = {"D1": {"iv_fluids": 500.0}, "D2": {"iv_fluids": 0.0}}
     dists = pd.DataFrame([[0.0, 45.0], [45.0, 0.0]], index=["D1", "D2"], columns=["D1", "D2"])
+
+    plan_df, summary = solve_resource_allocation(demands, stocks, distances_df=dists, lexicographic=True)
+    assert summary["solve_status"] == "OPTIMAL"
+    assert len(plan_df) > 0
+    for _, row in plan_df.iterrows():
+        assert row["source_region"] != row["dest_region"]
+        assert row["quantity"] > 0
+        assert isinstance(row["quantity"], (int, np.integer))
+        assert float(row["quantity"]).is_integer()
+
+    # Reject materially non-integral solver solution values rather than silently rounding
+    with pytest.raises(ValueError, match="Materially non-integral"):
+        _extract_integer_shipment(10.45, "x[D1, D2, iv_fluids]")
+
+    with pytest.raises(ValueError, match="Materially negative"):
+        _extract_integer_shipment(-1.0, "x[D1, D2, iv_fluids]")
 
 # ==============================================================================
 # PART 6: LEXICOGRAPHIC OPTIMIZATION & ABSOLUTE OBJECTIVE PRIORITY

@@ -40,6 +40,25 @@ PERISHABLE_MAX_KM = {
     "blood_units": 150.0
 }
 
+INTEGRALITY_TOLERANCE = 1e-4
+
+def _extract_integer_shipment(var_solution_value: float, var_name: str = "") -> int:
+    """
+    Safely extract an integer shipment quantity from a solver solution value.
+    Validates integrality within tolerance (1e-4) and non-negativity (>= -1e-5).
+    Rejects invalid or materially non-integral solver results with ValueError
+    rather than silently rounding them.
+    """
+    if var_solution_value < -1e-5:
+        raise ValueError(f"Materially negative solver solution value for {var_name}: {var_solution_value}")
+    nearest_int = int(round(var_solution_value))
+    if abs(var_solution_value - nearest_int) > INTEGRALITY_TOLERANCE:
+        raise ValueError(
+            f"Materially non-integral solver solution value for {var_name}: "
+            f"{var_solution_value} (deviation {abs(var_solution_value - nearest_int):.6f} > {INTEGRALITY_TOLERANCE})"
+        )
+    return max(0, nearest_int)
+
 def compute_exact_physical_unmet(
     allocations: Any,
     region_demands: Dict[str, Dict[str, float]],
@@ -69,7 +88,7 @@ def compute_exact_physical_unmet(
             i = row["source_region"]
             j = row["dest_region"]
             m = row["medicine"]
-            qty = int(round(float(row["quantity"])))
+            qty = _extract_integer_shipment(float(row["quantity"]), f"shipment[{i}, {j}, {m}]")
             if qty > 0:
                 if i in transfers_out and m in transfers_out[i]:
                     transfers_out[i][m] += qty
@@ -80,7 +99,7 @@ def compute_exact_physical_unmet(
             i = alloc["source_region"]
             j = alloc["dest_region"]
             m = alloc["medicine"]
-            qty = int(round(float(alloc["quantity"])))
+            qty = _extract_integer_shipment(float(alloc["quantity"]), f"shipment[{i}, {j}, {m}]")
             if qty > 0:
                 if i in transfers_out and m in transfers_out[i]:
                     transfers_out[i][m] += qty
@@ -302,7 +321,7 @@ def solve_resource_allocation(
         # Extract Stage 1 physical allocation plan
         stage1_allocations = []
         for (i, j, m), var in x.items():
-            qty = int(round(var.solution_value()))
+            qty = _extract_integer_shipment(var.solution_value(), f"x[{i}, {j}, {m}]")
             if qty > 0:
                 d_ij = float(distances_df.loc[i, j]) if (i in distances_df.index and j in distances_df.columns) else 9999.0
                 cost = round(qty * d_ij * cost_per_km_unit, 2)
@@ -370,7 +389,7 @@ def solve_resource_allocation(
             
             stage2_allocations = []
             for (i, j, m), var in x.items():
-                qty = int(round(var.solution_value()))
+                qty = _extract_integer_shipment(var.solution_value(), f"x[{i}, {j}, {m}]")
                 if qty > 0:
                     d_ij = float(distances_df.loc[i, j]) if (i in distances_df.index and j in distances_df.columns) else 9999.0
                     cost = round(qty * d_ij * cost_per_km_unit, 2)
@@ -429,7 +448,7 @@ def solve_resource_allocation(
         status = solver.Solve()
 
         for (i, j, m), var in x.items():
-            qty = int(round(var.solution_value()))
+            qty = _extract_integer_shipment(var.solution_value(), f"x[{i}, {j}, {m}]")
             if qty > 0:
                 d_ij = float(distances_df.loc[i, j]) if (i in distances_df.index and j in distances_df.columns) else 9999.0
                 cost = round(qty * d_ij * cost_per_km_unit, 2)
