@@ -1,11 +1,13 @@
+import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional, List, Tuple
 from fastapi import APIRouter, Request, HTTPException, status, Depends, Query
 from fastapi.responses import JSONResponse, FileResponse
 from pathlib import Path
-from sqlalchemy.orm import Session
+from sqlalchemy import desc
+from sqlalchemy.orm import Session, joinedload
 from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger(__name__)
@@ -21,7 +23,8 @@ from api.schemas import (
     LocalExplanationResponse, GlobalExplanationResponse,
     UpdateStockRequest, UserStockResponse,
     SimulationRequest, SimulationResponse,
-    AllocationRequest, AllocationResponse,
+    AllocationRequest, AllocationResponse, TransferRow,
+    AllocationCreatorResponse, PendingAllocationSummary, AllocationDetailResponse,
     ClinicalForecastResponse
 )
 from api.services import (
@@ -307,6 +310,175 @@ async def allocate_resources(
         )
 
     return res
+
+# -------------------------------------------------------------
+# ALLOCATION RETRIEVAL & GOVERNANCE QUEUE ENDPOINTS
+# -------------------------------------------------------------
+def _parse_transfers(transfers_json: Optional[str]) -> Tuple[List[TransferRow], int, int]:
+    """
+    Parse canonical transfers JSON into validated TransferRow objects and summary metrics.
+    Ensures deterministic sorting by (source_region, dest_region, medicine).
+    Returns (shipments, transfers_count, total_transferred_units).
+    """
+    if not transfers_json:
+        return [], 0, 0
+    try:
+        raw_list = json.loads(transfers_json)
+        if not isinstance(raw_list, list):
+            return [], 0, 0
+        shipments: List[TransferRow] = []
+        total_units = 0
+        for item in raw_list:
+            if isinstance(item, dict):
+                row = TransferRow(
+                    source_region=str(item.get("source_region", "")),
+                    dest_region=str(item.get("dest_region", "")),
+                    medicine=str(item.get("medicine", "")),
+                    quantity=int(item.get("quantity", 0)),
+                    distance_km=round(float(item.get("distance_km", 0.0)), 2),
+                    cost_index=round(float(item.get("cost_index", 0.0)), 2),
+                    priority=str(item.get("priority", "STANDARD")),
+                    confidence=round(float(item.get("confidence", 0.85)), 3)
+                )
+                shipments.append(row)
+                total_units += row.quantity
+        shipments.sort(key=lambda s: (s.source_region, s.dest_region, s.medicine))
+        return shipments, len(shipments), total_units
+    except Exception as e:
+        logger.warning(f"Failed to parse transfers_json: {e}")
+        return [], 0, 0
+
+
+@router.get(
+    "/api/allocations/pending",
+    response_model=List[PendingAllocationSummary],
+    summary="Get Pending Allocations for Governance Review",
+    tags=["Allocation & Governance"]
+)
+async def get_pending_allocations(
+    limit: int = Query(default=50, ge=1, le=100, description="Maximum number of allocations to return (1-100)"),
+    offset: int = Query(default=0, ge=0, description="Pagination offset (>= 0)"),
+    current_user: User = Depends(require_role(["coordinator", "admin", "officer", "viewer"])),
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieve persisted allocations currently in PENDING_REVIEW status for governance review.
+    - Returns only actual records persisted in SQLite.
+    - Excludes APPROVED, REJECTED, and UNLINKED_LEGACY allocations.
+    - Stable ordering: newest first by created_at descending.
+    - Avoids N+1 database queries via joinedload on creator user.
+    - Handles empty queue with HTTP 200 and an empty list [].
+    """
+    allocations = (
+        db.query(AllocationRecord)
+        .options(joinedload(AllocationRecord.user))
+        .filter(AllocationRecord.status == "PENDING_REVIEW")
+        .order_by(desc(AllocationRecord.created_at), desc(AllocationRecord.id))
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    results: List[PendingAllocationSummary] = []
+    for alloc in allocations:
+        _, transfers_count, total_units = _parse_transfers(alloc.transfers_json)
+        creator_info = None
+        if alloc.user:
+            creator_info = AllocationCreatorResponse(
+                id=alloc.user.id,
+                email=alloc.user.email,
+                role=alloc.user.role
+            )
+
+        created_str = alloc.created_at.isoformat() if hasattr(alloc.created_at, "isoformat") else str(alloc.created_at)
+        updated_str = alloc.updated_at.isoformat() if hasattr(alloc.updated_at, "isoformat") else str(alloc.updated_at)
+
+        results.append(
+            PendingAllocationSummary(
+                allocation_id=alloc.id,
+                id=alloc.id,
+                simulation_id=alloc.simulation_id,
+                plan_hash=alloc.plan_hash,
+                status=alloc.status,
+                cost_index=alloc.cost_index,
+                unmet_demand_after=alloc.unmet_demand_after,
+                transfers_count=transfers_count,
+                total_transferred_units=total_units,
+                created_at=created_str,
+                updated_at=updated_str,
+                creator=creator_info
+            )
+        )
+    return results
+
+
+@router.get(
+    "/api/allocations/{allocation_id}",
+    response_model=AllocationDetailResponse,
+    summary="Get Specific Allocation Record and Shipments",
+    tags=["Allocation & Governance"]
+)
+async def get_allocation_by_id(
+    allocation_id: str,
+    current_user: User = Depends(require_role(["coordinator", "admin", "officer", "viewer"])),
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieve one persisted allocation and its constituent shipment rows.
+    - Validates referenced simulation exists when the record claims to be linked.
+    - Preserves historical UNLINKED_LEGACY status for unlinked allocations without fabricating simulation IDs.
+    - Returns HTTP 404 for nonexistent allocations or nonexistent referenced simulations.
+    - Deterministically sorts shipments by (source_region, dest_region, medicine).
+    - Protects user privacy by never exposing sensitive authentication fields.
+    """
+    alloc = (
+        db.query(AllocationRecord)
+        .options(joinedload(AllocationRecord.user))
+        .filter(AllocationRecord.id == allocation_id)
+        .first()
+    )
+    if not alloc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Allocation '{allocation_id}' not found."
+        )
+
+    # Validate referenced simulation if record claims to be linked
+    if alloc.simulation_id:
+        sim = db.query(SimulationRecord).filter(SimulationRecord.id == alloc.simulation_id).first()
+        if not sim:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Referenced simulation '{alloc.simulation_id}' not found for allocation '{allocation_id}'."
+            )
+
+    shipments, transfers_count, total_units = _parse_transfers(alloc.transfers_json)
+    creator_info = None
+    if alloc.user:
+        creator_info = AllocationCreatorResponse(
+            id=alloc.user.id,
+            email=alloc.user.email,
+            role=alloc.user.role
+        )
+
+    created_str = alloc.created_at.isoformat() if hasattr(alloc.created_at, "isoformat") else str(alloc.created_at)
+    updated_str = alloc.updated_at.isoformat() if hasattr(alloc.updated_at, "isoformat") else str(alloc.updated_at)
+
+    return AllocationDetailResponse(
+        allocation_id=alloc.id,
+        id=alloc.id,
+        simulation_id=alloc.simulation_id,
+        plan_hash=alloc.plan_hash,
+        status=alloc.status,
+        cost_index=alloc.cost_index,
+        unmet_demand_after=alloc.unmet_demand_after,
+        transfers_count=transfers_count,
+        total_transferred_units=total_units,
+        created_at=created_str,
+        updated_at=updated_str,
+        creator=creator_info,
+        shipments=shipments
+    )
 
 # -------------------------------------------------------------
 # CLINICAL FORECASTING ENDPOINT

@@ -286,6 +286,46 @@ class AllocationResponse(BaseModel):
     status: Optional[str] = "PENDING_REVIEW"
 
 # -------------------------------------------------------------
+# ALLOCATION RETRIEVAL & GOVERNANCE QUEUE SCHEMAS
+# -------------------------------------------------------------
+class AllocationCreatorResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int = Field(..., description="Creator user identifier")
+    email: str = Field(..., description="Creator user email address")
+    role: str = Field(..., description="Creator user role")
+
+class PendingAllocationSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+    allocation_id: str = Field(..., description="Unique allocation identifier UUID")
+    id: str = Field(..., description="Alias identifier matching allocation_id")
+    simulation_id: Optional[str] = Field(default=None, description="Linked simulation UUID")
+    plan_hash: str = Field(..., description="SHA-256 canonical hash of the transfer plan")
+    status: str = Field(default="PENDING_REVIEW", description="Allocation review status (PENDING_REVIEW)")
+    cost_index: Optional[float] = Field(default=None, description="Calculated logistics cost index score")
+    unmet_demand_after: Optional[float] = Field(default=None, description="Remaining unmet demand units after allocation")
+    transfers_count: int = Field(default=0, description="Number of constituent inter-district transfer shipments")
+    total_transferred_units: int = Field(default=0, description="Total medical units transferred across all shipments")
+    created_at: str = Field(..., description="ISO 8601 UTC creation timestamp")
+    updated_at: str = Field(..., description="ISO 8601 UTC last update timestamp")
+    creator: Optional[AllocationCreatorResponse] = Field(default=None, description="Creator non-sensitive profile metadata")
+
+class AllocationDetailResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+    allocation_id: str = Field(..., description="Unique allocation identifier UUID")
+    id: str = Field(..., description="Alias identifier matching allocation_id")
+    simulation_id: Optional[str] = Field(default=None, description="Linked simulation UUID (null for historical unlinked records)")
+    plan_hash: str = Field(..., description="SHA-256 canonical hash of the transfer plan")
+    status: str = Field(..., description="Current lifecycle status (PENDING_REVIEW, APPROVED, REJECTED, UNLINKED_LEGACY)")
+    cost_index: Optional[float] = Field(default=None, description="Calculated logistics cost index score")
+    unmet_demand_after: Optional[float] = Field(default=None, description="Remaining unmet demand units after allocation")
+    transfers_count: int = Field(default=0, description="Number of constituent inter-district transfer shipments")
+    total_transferred_units: int = Field(default=0, description="Total medical units transferred across all shipments")
+    created_at: str = Field(..., description="ISO 8601 UTC creation timestamp")
+    updated_at: str = Field(..., description="ISO 8601 UTC last update timestamp")
+    creator: Optional[AllocationCreatorResponse] = Field(default=None, description="Creator non-sensitive profile metadata")
+    shipments: List[TransferRow] = Field(default_factory=list, description="Constituent shipment transfer rows stably sorted")
+
+# -------------------------------------------------------------
 # AUTH & USER SCHEMAS
 # -------------------------------------------------------------
 class UserRegisterRequest(BaseModel):
