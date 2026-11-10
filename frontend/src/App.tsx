@@ -10,6 +10,7 @@ import { BacktestPage } from "./pages/BacktestPage";
 import { GovernancePage } from "./pages/GovernancePage";
 import { LimitationsPage } from "./pages/LimitationsPage";
 import { LoginPage } from "./pages/LoginPage";
+import { ForecastPage } from "./pages/ForecastPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -32,6 +33,7 @@ export const App: React.FC = () => {
               <Routes>
                 <Route path="/" element={<OverviewPage />} />
                 <Route path="/simulator" element={<SimulatorPage />} />
+                <Route path="/forecast" element={<ForecastPage />} />
                 <Route path="/allocation" element={<AllocationPage />} />
                 <Route path="/backtest" element={<BacktestPage />} />
                 <Route path="/governance" element={<GovernancePage />} />

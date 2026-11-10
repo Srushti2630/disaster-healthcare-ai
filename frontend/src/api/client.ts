@@ -13,7 +13,8 @@ import {
   User,
   AuditEvent,
   AuditListResponse,
-  AuditVerifyResponse
+  AuditVerifyResponse,
+  ClinicalForecastResponse
 } from "../types";
 
 // Same-origin relative path by default for production deployment via Nginx reverse proxy.
@@ -58,6 +59,13 @@ export const api = {
   getMetrics: () => request<MetricsResponse>("/api/metrics"),
   getBacktest: () => request<BacktestResponse>("/api/backtest"),
   getBaselines: () => request<BaselineResponse>("/api/baselines"),
+  getClinicalForecast: (horizonMonths: number = 6, service?: string) => {
+    const params = new URLSearchParams();
+    if (horizonMonths) params.append("horizon_months", horizonMonths.toString());
+    if (service && service !== "ALL") params.append("service", service);
+    const queryString = params.toString();
+    return request<ClinicalForecastResponse>(`/api/forecast/clinical${queryString ? `?${queryString}` : ""}`);
+  },
 
   // Decision Support & Simulation
   predictImpact: (data: { hazard: string; magnitude?: number; month?: number; state?: string }) =>

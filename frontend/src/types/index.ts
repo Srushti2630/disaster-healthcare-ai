@@ -297,3 +297,26 @@ export interface UserStockResponse {
   updated_at?: string | null;
   message: string;
 }
+
+export interface ClinicalForecastItem {
+  period_index: number;
+  horizon_step: number;
+  year: number;
+  month: number;
+  service: "ICU" | "Emergency" | "General Medicine" | "Surgery" | string;
+  predicted_visits: number;
+  interval_lower: number;
+  interval_upper: number;
+  interval_width: number;
+  methodology: string;
+  calibration_samples: number;
+}
+
+export interface ClinicalForecastResponse {
+  model_name: string;
+  model_version: string;
+  generated_at: string;
+  horizon_months: number;
+  total_forecasts: number;
+  forecasts: ClinicalForecastItem[];
+}
