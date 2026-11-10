@@ -763,3 +763,277 @@ def test_unsupported_block_version_detected():
         assert is_valid is True
     finally:
         db.close()
+
+
+# ============================================================================
+# 10. Phase 3C-3 Closeout: P1 — Schema Migration Failure Handling & Safety
+# ============================================================================
+def test_migration_adds_allocation_id_and_block_version_to_legacy_database(tmp_path):
+    """Verify legacy SQLite DB missing allocation_id and block_version is migrated correctly."""
+    from sqlalchemy import create_engine, text
+    from api.database import init_db
+
+    db_path = tmp_path / "legacy_test.db"
+    legacy_engine = create_engine(f"sqlite:///{db_path}")
+
+    # Create legacy audit_events table without allocation_id and block_version
+    with legacy_engine.connect() as conn:
+        conn.execute(text("""
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email VARCHAR(255) UNIQUE NOT NULL,
+                hashed_password VARCHAR(255) NOT NULL,
+                role VARCHAR(50) NOT NULL,
+                created_at DATETIME NOT NULL
+            );
+        """))
+        conn.execute(text("""
+            CREATE TABLE simulations (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id),
+                inputs_json TEXT NOT NULL,
+                results_hash VARCHAR(64) NOT NULL,
+                created_at DATETIME NOT NULL
+            );
+        """))
+        conn.execute(text("""
+            CREATE TABLE allocations (
+                id VARCHAR(36) PRIMARY KEY,
+                simulation_id VARCHAR(36) REFERENCES simulations(id),
+                user_id INTEGER REFERENCES users(id),
+                plan_hash VARCHAR(64) NOT NULL,
+                transfers_json TEXT NOT NULL,
+                status VARCHAR(50) NOT NULL,
+                cost_index FLOAT,
+                unmet_demand_after FLOAT,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL
+            );
+        """))
+        conn.execute(text("""
+            CREATE TABLE audit_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                simulation_id VARCHAR(36) REFERENCES simulations(id),
+                action VARCHAR(20) NOT NULL,
+                reason_code VARCHAR(100) NOT NULL,
+                plan_hash VARCHAR(64) NOT NULL,
+                confidence FLOAT NOT NULL,
+                prev_hash VARCHAR(64) NOT NULL,
+                current_hash VARCHAR(64) NOT NULL,
+                created_at DATETIME NOT NULL
+            );
+        """))
+        conn.execute(text("INSERT INTO users (id, email, hashed_password, role, created_at) VALUES (1, 'hist@test.gov', 'pwd', 'officer', '2026-01-01 00:00:00')"))
+        from api.audit_ledger import compute_block_hash
+        hist_hash = compute_block_hash(
+            prev_hash=GENESIS_HASH,
+            timestamp_str="2026-01-01 00:00:00",
+            user_id=1,
+            simulation_id=None,
+            action="APPROVE",
+            reason_code="HISTORICAL_LEGACY",
+            plan_hash="h" * 64,
+            confidence=0.85,
+            version=1
+        )
+        conn.execute(text(f"""
+            INSERT INTO audit_events (id, user_id, simulation_id, action, reason_code, plan_hash, confidence, prev_hash, current_hash, created_at)
+            VALUES (1, 1, NULL, 'APPROVE', 'HISTORICAL_LEGACY', '{"h"*64}', 0.85, '{GENESIS_HASH}', '{hist_hash}', '2026-01-01 00:00:00')
+        """))
+        conn.commit()
+
+    # Verify columns absent before migration
+    with legacy_engine.connect() as conn:
+        cols_before = [r[1] for r in conn.execute(text("PRAGMA table_info(audit_events)")).fetchall()]
+        assert "allocation_id" not in cols_before
+        assert "block_version" not in cols_before
+
+    # Run init_db with legacy_engine
+    init_db(target_engine=legacy_engine)
+
+    # Verify columns added and historical row assigned block_version=1
+    with legacy_engine.connect() as conn:
+        cols_after = [r[1] for r in conn.execute(text("PRAGMA table_info(audit_events)")).fetchall()]
+        assert "allocation_id" in cols_after
+        assert "block_version" in cols_after
+        row = conn.execute(text("SELECT id, block_version, current_hash FROM audit_events WHERE id=1")).fetchone()
+        assert row[1] == 1
+        assert row[2] == hist_hash
+
+    # Verify chain with verify_chain
+    from sqlalchemy.orm import sessionmaker
+    LegacySession = sessionmaker(bind=legacy_engine)
+    session = LegacySession()
+    try:
+        is_valid, count, broken = verify_chain(session)
+        assert is_valid is True
+        assert count == 1
+    finally:
+        session.close()
+
+def test_migration_idempotency_on_already_migrated_database(tmp_path):
+    """Verify init_db can be called repeatedly without duplicate column errors."""
+    from sqlalchemy import create_engine
+    from api.database import init_db
+
+    db_path = tmp_path / "idempotent_test.db"
+    test_engine = create_engine(f"sqlite:///{db_path}")
+
+    # First call: creates tables and migrations
+    init_db(target_engine=test_engine)
+
+    # Second call: must succeed without OperationalError: duplicate column name
+    init_db(target_engine=test_engine)
+
+    # Third call: still idempotent
+    init_db(target_engine=test_engine)
+
+def test_migration_failure_raises_clear_error_and_preserves_cause(tmp_path):
+    """Verify schema migration errors raise RuntimeError with original exception chained."""
+    from sqlalchemy import create_engine
+    from unittest.mock import patch
+    from api.database import init_db
+
+    db_path = tmp_path / "fail_migration.db"
+    test_engine = create_engine(f"sqlite:///{db_path}")
+
+    # First initialize tables
+    init_db(target_engine=test_engine)
+
+    # Mock engine.connect to raise OperationalError during migration check
+    with patch.object(test_engine, "connect", side_effect=Exception("Simulated migration disk failure")):
+        with pytest.raises(RuntimeError) as exc_info:
+            init_db(target_engine=test_engine)
+        assert "Database schema migration failed" in str(exc_info.value)
+        assert isinstance(exc_info.value.__cause__, Exception)
+        assert "Simulated migration disk failure" in str(exc_info.value.__cause__)
+
+def test_lifespan_aborts_readiness_on_migration_failure():
+    """Verify lifespan startup fails loudly and keeps app.state.ready = False if init_db fails."""
+    import asyncio
+    from fastapi import FastAPI
+    from unittest.mock import patch
+    from api.lifespan import lifespan
+
+    test_app = FastAPI()
+    test_app.state.ready = False
+
+    with patch("api.database.init_db", side_effect=RuntimeError("Migration failed fatally")):
+        with pytest.raises(RuntimeError, match="Migration failed fatally"):
+            asyncio.run(lifespan(test_app).__aenter__())
+        assert test_app.state.ready is False
+
+
+# ============================================================================
+# 11. Phase 3C-3 Closeout: P2 — Never Suppress SQLite BEGIN IMMEDIATE Failures
+# ============================================================================
+def test_begin_immediate_failure_aborts_immediately_without_persisting_or_mutating(client, coordinator_token):
+    """Verify that if BEGIN IMMEDIATE fails, decision aborts with no event inserted and allocation stays PENDING_REVIEW."""
+    headers = {"Authorization": f"Bearer {coordinator_token}"}
+
+    # Setup allocation
+    sim_res = client.post("/api/simulate", json={"epicentre": "Satara"}, headers=headers)
+    sim_id = sim_res.json()["simulation_id"]
+    alloc_res = client.post("/api/allocate", json={"simulation_id": sim_id, "epicentre": "Satara"}, headers=headers)
+    alloc_id = alloc_res.json()["allocation_id"]
+    plan_hash = alloc_res.json()["plan_hash"]
+
+    # Mock db.execute to fail on BEGIN IMMEDIATE
+    db = api.database.SessionLocal()
+    user = db.query(User).first()
+    original_execute = db.execute
+
+    def failing_execute(clause, *args, **kwargs):
+        if "BEGIN IMMEDIATE" in str(clause):
+            raise RuntimeError("Injected BEGIN IMMEDIATE failure")
+        return original_execute(clause, *args, **kwargs)
+
+    db.execute = failing_execute
+
+    with pytest.raises(RuntimeError, match="Injected BEGIN IMMEDIATE failure"):
+        record_decision(
+            db=db,
+            user=user,
+            action="APPROVE",
+            reason_code="SHOULD_ABORT",
+            plan_hash=plan_hash,
+            confidence=0.90,
+            simulation_id=sim_id,
+            allocation_id=alloc_id
+        )
+    db.close()
+
+    # Verify allocation remains PENDING_REVIEW and no audit event was created
+    verify_db = api.database.SessionLocal()
+    try:
+        alloc = verify_db.query(AllocationRecord).filter(AllocationRecord.id == alloc_id).first()
+        event = verify_db.query(AuditEvent).filter(AuditEvent.allocation_id == alloc_id).first()
+        assert alloc.status == "PENDING_REVIEW"
+        assert event is None
+    finally:
+        verify_db.close()
+
+def test_begin_immediate_lock_timeout_maps_to_http_503(tmp_path):
+    """Verify that SQLite lock timeout on BEGIN IMMEDIATE returns HTTP 503 retryable response."""
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.orm import sessionmaker
+    from fastapi import HTTPException
+    from api.models import Base, User, SimulationRecord, AllocationRecord, AuditEvent
+    from api.audit_ledger import record_decision
+
+    db_path = tmp_path / "lock_contention.db"
+    test_engine = create_engine(f"sqlite:///{db_path}", connect_args={"timeout": 0.5})
+    Base.metadata.create_all(bind=test_engine)
+    TestSession = sessionmaker(bind=test_engine)
+
+    # Seed user, simulation, allocation
+    seed_s = TestSession()
+    u = User(email="lock_officer@test.gov", hashed_password="pwd", role="officer")
+    seed_s.add(u)
+    seed_s.commit()
+    user_id = u.id
+
+    sim = SimulationRecord(id="sim_lock", user_id=user_id, inputs_json="{}", results_hash="1"*64)
+    alloc = AllocationRecord(id="alloc_lock", simulation_id="sim_lock", user_id=user_id, plan_hash="2"*64, transfers_json="[]", status="PENDING_REVIEW")
+    seed_s.add(sim)
+    seed_s.add(alloc)
+    seed_s.commit()
+    seed_s.close()
+
+    # Connection 1: acquire and hold an exclusive lock via raw DBAPI connection
+    conn1 = test_engine.connect()
+    conn1.execute(text("BEGIN IMMEDIATE"))
+
+    # Connection 2: attempt record_decision with 0.5s timeout; must fail with HTTP 503
+    s2 = TestSession()
+    user2 = s2.query(User).filter(User.id == user_id).first()
+
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            record_decision(
+                db=s2,
+                user=user2,
+                action="APPROVE",
+                reason_code="COMPETE_FOR_LOCK",
+                plan_hash="2"*64,
+                confidence=0.92,
+                simulation_id="sim_lock",
+                allocation_id="alloc_lock"
+            )
+        assert exc_info.value.status_code == 503
+        assert "Database write lock acquisition timed out" in exc_info.value.detail
+    finally:
+        s2.close()
+        conn1.rollback()
+        conn1.close()
+
+    # Verify allocation remains PENDING_REVIEW and no AuditEvent was inserted
+    check_s = TestSession()
+    try:
+        alloc_row = check_s.query(AllocationRecord).filter(AllocationRecord.id == "alloc_lock").first()
+        event_row = check_s.query(AuditEvent).filter(AuditEvent.allocation_id == "alloc_lock").first()
+        assert alloc_row.status == "PENDING_REVIEW"
+        assert event_row is None
+    finally:
+        check_s.close()

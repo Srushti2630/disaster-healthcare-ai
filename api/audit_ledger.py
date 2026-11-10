@@ -1,6 +1,7 @@
 """Tamper-evident SHA-256 hash-chained audit ledger for human decision governance."""
 import hashlib
 import json
+import logging
 import threading
 from datetime import datetime, timezone
 from typing import Tuple, List, Optional, Dict, Any
@@ -11,6 +12,8 @@ import yaml
 
 from api.models import AuditEvent, User, AllocationRecord
 from api.config import settings
+
+logger = logging.getLogger(__name__)
 
 GENESIS_HASH = "0000000000000000000000000000000000000000000000000000000000000000"
 _ledger_lock = threading.Lock()
@@ -159,8 +162,18 @@ def record_decision(
             if db.bind and db.bind.dialect.name == "sqlite":
                 try:
                     db.execute(text("BEGIN IMMEDIATE"))
-                except Exception:
-                    pass  # If transaction is already active or non-sqlite
+                except Exception as exc:
+                    err_msg = str(exc).lower()
+                    if "database is locked" in err_msg or "busy" in err_msg:
+                        logger.warning("Database write lock acquisition timed out: %s", exc)
+                        db.rollback()
+                        raise HTTPException(
+                            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="Database write lock acquisition timed out. Please retry the decision submission."
+                        ) from exc
+                    logger.error("Failed to acquire SQLite write lock via BEGIN IMMEDIATE: %s", exc, exc_info=True)
+                    db.rollback()
+                    raise
 
             alloc = None
             if allocation_id:

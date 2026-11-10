@@ -24,7 +24,9 @@ async def lifespan(app: FastAPI):
         init_db()
         logger.info("Initialized database tables (users, simulations, audit_events).")
     except Exception as e:
-        logger.error(f"Error initializing database: {e}")
+        logger.error(f"Fatal error initializing database schema: {e}", exc_info=True)
+        app.state.ready = False
+        raise
 
     # 1. Load Processed Datasets
     try:

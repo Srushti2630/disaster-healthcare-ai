@@ -1,8 +1,11 @@
 """SQLAlchemy 2 database engine and session configuration."""
 import os
+import logging
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from api.config import settings
+
+logger = logging.getLogger(__name__)
 
 def configure_sqlite_engine(target_engine):
     """Attach SQLite connect listener to enforce WAL journal mode, 15s busy timeout, and foreign keys."""
@@ -40,21 +43,25 @@ def get_db():
     finally:
         db.close()
 
-def init_db():
+def init_db(target_engine=None):
     """Create all tables defined in Base metadata and run additive migrations."""
     from api import models  # noqa: F401
     from sqlalchemy import text
-    Base.metadata.create_all(bind=engine)
-    # Safe additive migration: ensure allocation_id and block_version columns exist on audit_events in SQLite
-    if settings.DATABASE_URL.startswith("sqlite"):
-        try:
-            with engine.connect() as conn:
+    eng = target_engine or engine
+    try:
+        Base.metadata.create_all(bind=eng)
+        # Safe additive migration: ensure allocation_id and block_version columns exist on audit_events in SQLite
+        if eng.dialect.name == "sqlite":
+            with eng.connect() as conn:
                 cols = [row[1] for row in conn.execute(text("PRAGMA table_info(audit_events)")).fetchall()]
                 if cols and "allocation_id" not in cols:
+                    logger.info("Applying additive schema migration: ADD COLUMN allocation_id to audit_events")
                     conn.execute(text("ALTER TABLE audit_events ADD COLUMN allocation_id VARCHAR(36) REFERENCES allocations(id)"))
                     conn.commit()
                 if cols and "block_version" not in cols:
+                    logger.info("Applying additive schema migration: ADD COLUMN block_version to audit_events (default=1)")
                     conn.execute(text("ALTER TABLE audit_events ADD COLUMN block_version INTEGER NOT NULL DEFAULT 1"))
                     conn.commit()
-        except Exception:
-            pass
+    except Exception as e:
+        logger.error(f"Database schema initialization/migration failed on engine {eng.url}: {e}", exc_info=True)
+        raise RuntimeError(f"Database schema migration failed: {e}") from e
