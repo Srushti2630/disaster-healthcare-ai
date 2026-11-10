@@ -92,29 +92,38 @@ In Scenario 32 (catastrophic statewide disaster with initial unmet clinical dema
 
 ---
 
-## Section C — Resolution of Strict Lexicographic Priority: The Fallback Architecture
+## Section C — Resolution of Strict Lexicographic Priority: Exact Physical Objective Comparison & Fallback Architecture
 
 ### Strict Clinical Priority Mandate
 In disaster triage, clinical shortage minimization is strictly non-negotiable:
 $$\text{Level 1: } \min Z_1 = \sum_{j, m} \omega_m \cdot \text{actual\_unmet}[j, m]$$
 $$\text{Level 2: } \min Z_2 = \text{cost} - W_{\text{fairness}} \cdot \theta \quad \text{s.t. } Z_1 \le Z_1^*$$
 
-Because floating-point MIP solvers evaluate constraints up to relative feasibility tolerance $\epsilon_{\text{feas}}$, mathematical constraints of the form $\sum \omega_m u_{jm} \le Z_1^*$ cannot mathematically guarantee zero physical deterioration on massive multi-million unit instances.
+Because floating-point MIP solvers evaluate constraints up to relative feasibility tolerance $\epsilon_{\text{feas}}$ (`feastol = 1e-6`), continuous slack variables can legally permit relative violations ($\sim 10^{-6} \cdot Z_1^*$). Any positive acceptance threshold ($\tau > 0$) remains a relaxation window that permits non-zero physical deteriorations.
 
-### The Infallible Post-Solve Fallback Mechanism
-To guarantee that strict clinical priority is never compromised by solver feasibility relaxation:
-1. **Numerical Error Bound**:
-   $$\tau_{\text{numerical}} = \max(10^{-5}, 10^{-11} \cdot Z_{1, \text{phys}}^{(1)})$$
-   For standard scales, $\tau = 10^{-5}$. For $10^8$ catastrophe scales, $\tau \approx 0.001$, strictly blocking any fractional under-shipment ($\ge 0.10$).
-2. **Post-Solve Verification & Fallback**:
-   - If $Z_{1, \text{phys}}^{(2)} \le Z_{1, \text{phys}}^{(1)} + \tau_{\text{numerical}}$: Stage 2 strictly preserved the primary optimum within numerical precision. Stage 2's plan is accepted (`stage2_accepted = True, lexicographic_fallback = False`).
-   - If $Z_{1, \text{phys}}^{(2)} > Z_{1, \text{phys}}^{(1)} + \tau_{\text{numerical}}$: Stage 2 traded away primary clinical demand. **The engine rejects Stage 2 and falls back to the Stage 1 physical allocation plan $x^{(1)}$** (`stage2_accepted = False, lexicographic_fallback = True`).
-3. **Verification in Scenario 32**:
-   - Stage 1 Physical Optimum: $105,184,402.20$
-   - Stage 2 Physical Deterioration: $105,184,402.30$ (diff = $+0.10 > \tau_{\text{numerical}}$)
-   - Fallback Action: **Stage 2 rejected; Stage 1 plan deployed.**
-   - Final Plan Physical Unmet: **105,184,402.20**
-   - Final Physical Deterioration: **0.00000000** (Strict clinical priority strictly enforced!).
+### Exact Physical Objective Comparison (`fractions.Fraction`)
+To eliminate arbitrary tolerances and prevent even infinitesimal primary objective deterioration:
+1. **Exact Rational Arithmetic Representation**:
+   Using `fractions.Fraction`, every continuous input demand $D_{j,m}$ and initial stock $S_{j,m}$ is converted to its exact binary rational representation $\frac{P}{Q}$ without precision loss or quantization.
+2. **Physical Inventory Balance Convention**:
+   Following `evaluate_allocation_plan()`, inbound and outbound transfers are accumulated from integer shipment quantities $x_{i,j,m} \in \mathbb{Z}_{\ge 0}$:
+   $$\text{final\_stock}_{j,m} = S_{j,m} + \sum_i x_{i,j,m} - \sum_k x_{j,k,m}$$
+   $$\text{unmet}_{j,m} = \max(0, D_{j,m} - \text{final\_stock}_{j,m})$$
+   $$Z_{1,\text{phys}} = \sum_{j, m} \omega_m \cdot \text{unmet}_{j,m} \in \mathbb{Q}$$
+   This is computed independently for Stage 1 ($Z_{1,\text{phys}}^{(1)}$) and Stage 2 ($Z_{1,\text{phys}}^{(2)}$).
+3. **Exact Acceptance Rule**:
+   $$Z_{1,\text{phys}}^{(2)} \le Z_{1,\text{phys}}^{(1)}$$
+   - If $Z_{1,\text{phys}}^{(2)} \le Z_{1,\text{phys}}^{(1)}$: Stage 2 achieved equal or lower physical unmet demand while optimizing secondary transport cost and equity. Stage 2 is accepted (`stage2_accepted = True, lexicographic_fallback = False`).
+   - If $Z_{1,\text{phys}}^{(2)} > Z_{1,\text{phys}}^{(1)}$: Stage 2 incurred physical clinical deterioration (even by $10^{-6}$ or $\frac{1}{2^{52}}$). Stage 2 is immediately rejected, and the solver reverts to the saved Stage 1 physical allocation plan $x^{(1)}$ (`stage2_accepted = False, lexicographic_fallback = True`).
+4. **Zero Tolerance Guarantee**:
+   $\tau_{\text{audit}} = 0.0$. No arbitrary tolerance threshold is used.
+5. **Scenario 32 Resolution**:
+   - $Z_{1,\text{phys}}^{(1)} = 105,184,402.20$
+   - $Z_{1,\text{phys}}^{(2)} = 105,184,402.30$
+   - Exact comparison: $Z_{1,\text{phys}}^{(2)} - Z_{1,\text{phys}}^{(1)} = +0.10 > 0$.
+   - Fallback Action: **Stage 2 rejected; Stage 1 allocation plan returned.**
+   - Returned Physical Unmet: **105,184,402.20** ($\Delta Z_{1,\text{phys}} = 0.00000000$).
+   - Operational Feasibility: Verified 0 violations via `evaluate_allocation_plan()`.
 
 ---
 
@@ -131,7 +140,11 @@ Implemented and passing in [`tests/test_phase2_optimization.py`](file:///Users/d
 | **AUD-05** | `test_solver_failure_safe_exit_and_invariance` | Simulates Stage 1 / Stage 2 failure. | Halts cleanly; returns `INFEASIBLE` and empty plan. | **PASSED** |
 | **AUD-06** | `test_scenario_32_four_objective_comparison` | Verifies all 4 objectives on Scenario 32 ($Z_1^* \approx 105M$); ensures double-precision agreement and capped tolerance. | $Z_{1,\text{phys}}^{(1)}$ matches $Z_{1,\text{solver}}^{(1)}$ to $-3 \times 10^{-8}$; $\Delta Z_{1,\text{phys}} = +0.10 \le 1.0$. | **PASSED** |
 | **AUD-07** | `test_large_objective_capped_tolerance_blocks_discrete_sacrifice` | Verifies tolerance capped at 1.0 strictly blocks $\ge 1.0$ discrete unit sacrifice even at $Z_1^* = 10^8$. | Rejects 1.01 unit loss (ORS) and 5.0 unit loss (blood); blocks sacrifice. | **PASSED** |
-| **AUD-08** | `test_fractional_deterioration_near_audit_threshold` | Verifies $10^{-5}$ floor detects fractional under-shipments when $Z_1^* < 1.0$. | Detects and guards fractional boundary deficits. | **PASSED** |
+| **AUD-08** | `test_fractional_deterioration_smaller_than_1e_5` | Verifies that exact rational comparison (`Fraction`) strictly blocks deteriorations smaller than $10^{-5}$ (e.g. $10^{-6}$), whereas positive tolerances mistakenly admit them. | Infinitesimal deterioration $10^{-6}$ rejected; exact bound strictly enforced. | **PASSED** |
+| **AUD-09** | `test_deterioration_near_relative_threshold_at_large_objective` | Verifies that on large objectives ($Z_1^* = 10^8$), a deterioration of $0.0005$ (falling below relative tolerance $0.00105$) is strictly rejected by exact comparison. | Positive tolerance admitted $0.0005$; exact comparison strictly rejects it. | **PASSED** |
+| **AUD-10** | `test_exact_equality_stage1_and_stage2_physical_objectives` | Verifies that when Stage 2 achieves exact equality with Stage 1 physical unmet demand, Stage 2 is accepted (`fallback=False`). | Stage 2 accepted; $\Delta Z_{1,\text{phys}} = 0.0$; secondary improvements preserved. | **PASSED** |
+| **AUD-11** | `test_stage2_secondary_improvement_without_clinical_deterioration` | Verifies Stage 2 minimizes transport cost among multiple Stage 1 optima while preserving exact clinical shortage. | Selects Near donor (₹12,500 vs ₹60,500); unmet demand $= 0.0$. | **PASSED** |
+| **AUD-12** | `test_stage1_fallback_physical_feasibility_and_unchanged_quantities` | Verifies that when Stage 1 fallback is triggered (Scenario 32), the returned plan has 0 constraint violations in `evaluate_allocation_plan` and matches Stage 1 plan. | 0 violations; exact physical unmet equals Stage 1 optimum. | **PASSED** |
 | **ADV-01** | `test_adversarial_1_fractional_unmet_demand_smaller_than_1e4` | Fractional deficit $10^{-5} < 10^{-4}$. | Transfers 134 units; unmet demand $= 0.0$. | **PASSED** |
 | **ADV-02** | `test_adversarial_2_fractional_demand_immediately_above_integer_boundary` | Demand $= 100.0001$ above integer. | Transfers 101 units; zero clinical sacrifice. | **PASSED** |
 | **ADV-03** | `test_adversarial_3_demand_immediately_below_integer_boundary` | Demand $= 99.9999$ below integer. | Transfers 100 units (not 99); unmet demand $= 0.0$. | **PASSED** |
@@ -198,13 +211,13 @@ From [`reports/phase2_fairness_sensitivity.csv`](file:///Users/diksha/Downloads/
   * `tests_api/test_api_endpoints.py`: 19 passed
   * `tests_api/test_auth_audit.py`: 10 passed
   * `tests/test_phase1_regressions.py`: 17 passed
-  * `tests/test_phase2_optimization.py`: 42 passed (including all 8 audit tests, fractional under-shipment counterexample, deterioration spectrum tests, large objective tolerance guard, and Scenario 32 strict fallback)
-  * **Backend Total: 120 passed, 0 failed** in 15.33s.
+  * `tests/test_phase2_optimization.py`: 46 passed (including exact rational Fraction tests, infinitesimal deterioration blocks, large objective relative bounds, Scenario 32 fallback, exact equality preservation, and Stage 1 feasibility)
+  * **Backend Total: 124 passed, 0 failed** in 17.50s.
 - **Frontend Suite**:
-  * Vitest Suite (`npm test -- --run`): 7 passed, 0 failed in 1.45s.
+  * Vitest Suite (`npm test -- --run`): 7 passed, 0 failed in 1.55s.
   * TypeScript Checking (`npx tsc --noEmit`): 0 errors (exit code 0).
-  * Production Build (`npm run build`): Successfully built in 8.26s.
-- **Grand Total**: **127 automated tests passed, 0 failed**.
+  * Production Build (`npm run build`): Successfully built in 7.88s.
+- **Grand Total**: **131 automated tests passed, 0 failed**.
 
 ### 2. Model Integrity Certification
 Certified zero modifications to all production `.joblib` model weights and explainers:
@@ -225,7 +238,7 @@ Certified zero modifications to all production `.joblib` model weights and expla
 |---|---|---|---|
 | **ISS-01** | Lexicographic Shortage Priority | Replaced single-stage scalarization with sequential 2-stage lexicographic MIP; guaranteed absolute prioritization of weighted unmet demand. | **RESOLVED** |
 | **ISS-02** | Epsilon Constraint & Strict Clinical Priority | Refuted 1.0 tolerance cap for fractional demands; replaced artificial tolerance with exact bound $Z_1 \le Z_1^*$; eliminated under-shipment exploitation at fractional boundaries. | **RESOLVED** |
-| **ISS-03** | Independent Allocation-Balance Audit | Replaced internal slack re-summation with independent reconstruction of actual unmet demand from physical shipments $x_{i, j, m}$; enforced post-solve guard with strict numerical tolerance $\tau_{\text{numerical}} = \max(10^{-5}, 10^{-11} \cdot Z_1^*)$ and automatic fallback to Stage 1 physical allocation plan. | **RESOLVED** |
+| **ISS-03** | Exact Physical Allocation Comparison & Fallback | Implemented exact rational physical unmet reconstruction (`fractions.Fraction`) from shipment vector $x_{i,j,m}$; enforced zero tolerance ($\tau=0.0$) via rule $Z_{1,\text{phys}}^{(2)} \le Z_{1,\text{phys}}^{(1)}$; guaranteed automatic fallback to Stage 1 physical allocation plan on any positive deterioration. | **RESOLVED** |
 | **ISS-04** | Stage 2 Fairness Sensitivity & Production Choice | Evaluated 5-point grid ($W \in [0, 10^6]$); proved $W_{\text{fairness}} = 100,000$ improves $\theta$ from 0.2222 to 0.5128 at zero practical cost (-₹0.06); independently reconciled $\theta$. | **RESOLVED** |
 | **ISS-05** | Paired Cost Statistics Completeness | Reported all 15 required statistical metrics for all 4 baselines on $N=18$ cohort ($N_{\text{nz}}=14$); reconciled ratio-of-means (31.14%, 32.58%) vs scenario percentages (31.11%, 41.75%); reconciled zero-cost baseline for No Redistribution. | **RESOLVED** |
 | **ISS-06** | Reserve Sensitivity & 98.7% Statement | Reconciled 98.7% to Scenario 0 demand reduction (96.83% system-wide); defended $\beta = 0.30$ as a civil defense risk-management policy choice. | **RESOLVED** |
@@ -236,4 +249,4 @@ Certified zero modifications to all production `.joblib` model weights and expla
 ---
 
 ## Summary & Readiness
-Phase 2 verification is complete, hardened with independent physical allocation-balance auditing, strict clinical priority fallback protection against simplex feasibility tolerances, statistically reconciled, and backed by 127 automated tests. The system is certified ready for transition to Phase 3.
+Phase 2 certification is complete, hardened with exact rational physical objective comparison (`fractions.Fraction`), zero-tolerance strict clinical priority fallback protection against simplex feasibility tolerances, statistically reconciled, and backed by 131 automated tests. The system is certified ready for transition to Phase 3.

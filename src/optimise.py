@@ -8,6 +8,7 @@ os.environ["MPLCONFIGDIR"] = "/tmp/matplotlib"
 
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
+from fractions import Fraction
 import json
 import time
 import math
@@ -38,6 +39,67 @@ MEDICINE_CRITICALITY = {
 PERISHABLE_MAX_KM = {
     "blood_units": 150.0
 }
+
+def compute_exact_physical_unmet(
+    allocations: Any,
+    region_demands: Dict[str, Dict[str, float]],
+    region_stocks: Dict[str, Dict[str, float]],
+    medicines: Optional[List[str]] = None,
+    districts: Optional[List[str]] = None,
+    criticality_weights: Optional[Dict[str, float]] = None
+) -> Fraction:
+    """
+    Compute exact rational weighted physical unmet demand from physical shipments.
+    Preserves original float/int inputs without rounding or quantizing demand,
+    uses the evaluate_allocation_plan() inventory balance convention, and
+    evaluates using exact rational arithmetic (fractions.Fraction) with zero roundoff.
+    """
+    if medicines is None:
+        medicines = MEDICINES
+    if districts is None:
+        districts = sorted(list(set(region_demands.keys()) | set(region_stocks.keys())))
+    if criticality_weights is None:
+        criticality_weights = MEDICINE_CRITICALITY
+
+    transfers_in = {d: {m: 0 for m in medicines} for d in districts}
+    transfers_out = {d: {m: 0 for m in medicines} for d in districts}
+
+    if isinstance(allocations, pd.DataFrame):
+        for _, row in allocations.iterrows():
+            i = row["source_region"]
+            j = row["dest_region"]
+            m = row["medicine"]
+            qty = int(round(float(row["quantity"])))
+            if qty > 0:
+                if i in transfers_out and m in transfers_out[i]:
+                    transfers_out[i][m] += qty
+                if j in transfers_in and m in transfers_in[j]:
+                    transfers_in[j][m] += qty
+    elif isinstance(allocations, list):
+        for alloc in allocations:
+            i = alloc["source_region"]
+            j = alloc["dest_region"]
+            m = alloc["medicine"]
+            qty = int(round(float(alloc["quantity"])))
+            if qty > 0:
+                if i in transfers_out and m in transfers_out[i]:
+                    transfers_out[i][m] += qty
+                if j in transfers_in and m in transfers_in[j]:
+                    transfers_in[j][m] += qty
+
+    exact_total_unmet = Fraction(0, 1)
+    for j in districts:
+        for m in medicines:
+            stk = Fraction(region_stocks.get(j, {}).get(m, 0.0))
+            dem = Fraction(region_demands.get(j, {}).get(m, 0.0))
+            crit = Fraction(criticality_weights.get(m, 1.0))
+
+            final_stk = stk + Fraction(transfers_in[j][m]) - Fraction(transfers_out[j][m])
+            unmet = dem - final_stk
+            if unmet > 0:
+                exact_total_unmet += crit * unmet
+
+    return exact_total_unmet
 
 def load_or_compute_distance_matrix() -> pd.DataFrame:
     """Load road distance matrix if provided, otherwise compute Haversine x 1.3 circuity matrix."""
@@ -180,8 +242,10 @@ def solve_resource_allocation(
     stage1_status = None
     optimal_weighted_unmet = None
     stage1_reconstructed_unmet = None
+    stage1_exact_unmet = None
     stage2_solver_unmet = None
     stage2_reconstructed_unmet = None
+    stage2_exact_unmet = None
     reconstructed_weighted_unmet = None
     audit_tolerance = None
     stage2_accepted = True
@@ -225,6 +289,8 @@ def solve_resource_allocation(
                 "stage2_reconstructed_unmet": None,
                 "reconstructed_weighted_unmet": None,
                 "audit_tolerance": None,
+                "exact_comparison": True,
+                "exact_deterioration": None,
                 "stage2_accepted": False,
                 "lexicographic_fallback": False
             }
@@ -253,17 +319,11 @@ def solve_resource_allocation(
                     "confidence": round(float(conf), 3)
                 })
 
-        # Reconstruct Stage 1 physical allocation objective directly from x[i, j, m] using math.fsum
-        stage1_unmet_terms = []
-        for j in districts:
-            for m in medicines:
-                stk = float(region_stocks.get(j, {}).get(m, 0.0))
-                dem = float(region_demands.get(j, {}).get(m, 0.0))
-                inbound = sum(float(x[i, j, m].solution_value()) for i in districts if (i, j, m) in x)
-                outbound = sum(float(x[j, k, m].solution_value()) for k in districts if (j, k, m) in x)
-                actual_unmet = max(0.0, dem - (stk + inbound - outbound))
-                stage1_unmet_terms.append(actual_unmet * MEDICINE_CRITICALITY.get(m, 1.0))
-        stage1_reconstructed_unmet = math.fsum(stage1_unmet_terms)
+        # Reconstruct Stage 1 physical allocation objective directly from x[i, j, m] using fractions.Fraction
+        stage1_exact_unmet = compute_exact_physical_unmet(
+            stage1_allocations, region_demands, region_stocks, medicines, districts, MEDICINE_CRITICALITY
+        )
+        stage1_reconstructed_unmet = float(stage1_exact_unmet)
 
         # Constrain Stage 1 objective value with numerical tolerance
         unmet_weighted_sum = solver.Sum(unmet[j, m] * MEDICINE_CRITICALITY.get(m, 1.0) for j in districts for m in medicines)
@@ -291,10 +351,10 @@ def solve_resource_allocation(
         obj2.SetMinimization()
         status = solver.Solve()
 
-        # Strict Clinical Priority Audit & Fallback Guard:
+        # Strict Clinical Priority Audit & Fallback Guard via Exact Arithmetic:
         # In disaster healthcare operations, NO positive primary deterioration can ever be clinically justified.
-        # Double-precision accumulation noise across 175 terms on scale Z1* is bounded by 1e-11 * Z1* (or 1e-5 absolute).
-        audit_tolerance = max(1e-5, 1e-11 * optimal_weighted_unmet)
+        # Zero tolerance (exact comparison in fractions.Fraction over represented input values):
+        audit_tolerance = 0.0
 
         if status not in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
             # If Stage 2 fails, fallback to Stage 1 physical solution to preserve clinical optimality
@@ -304,6 +364,7 @@ def solve_resource_allocation(
             reconstructed_weighted_unmet = stage1_reconstructed_unmet
             stage2_solver_unmet = None
             stage2_reconstructed_unmet = None
+            stage2_exact_unmet = None
         else:
             stage2_solver_unmet = float(sum(unmet[j, m].solution_value() * MEDICINE_CRITICALITY.get(m, 1.0) for j in districts for m in medicines))
             
@@ -326,32 +387,25 @@ def solve_resource_allocation(
                         "confidence": round(float(conf), 3)
                     })
 
-            # Reconstruct Stage 2 physical unmet demand with math.fsum
-            stage2_unmet_terms = []
-            for j in districts:
-                for m in medicines:
-                    stk = float(region_stocks.get(j, {}).get(m, 0.0))
-                    dem = float(region_demands.get(j, {}).get(m, 0.0))
-                    inbound = sum(float(x[i, j, m].solution_value()) for i in districts if (i, j, m) in x)
-                    outbound = sum(float(x[j, k, m].solution_value()) for k in districts if (j, k, m) in x)
-                    net_final_stock = stk + inbound - outbound
-                    actual_unmet = max(0.0, dem - net_final_stock)
-                    stage2_unmet_terms.append(actual_unmet * MEDICINE_CRITICALITY.get(m, 1.0))
-            stage2_reconstructed_unmet = math.fsum(stage2_unmet_terms)
+            # Reconstruct Stage 2 physical unmet demand with exact arithmetic (fractions.Fraction)
+            stage2_exact_unmet = compute_exact_physical_unmet(
+                stage2_allocations, region_demands, region_stocks, medicines, districts, MEDICINE_CRITICALITY
+            )
+            stage2_reconstructed_unmet = float(stage2_exact_unmet)
 
-            if stage2_reconstructed_unmet > stage1_reconstructed_unmet + audit_tolerance:
-                # Stage 2 degraded primary clinical optimum due to solver feasibility slack across fractional demand boundaries.
-                # Strictly preserve clinical priority by rejecting Stage 2 and falling back to Stage 1 physical solution.
-                stage2_accepted = False
-                lexicographic_fallback = True
-                allocations = stage1_allocations
-                reconstructed_weighted_unmet = stage1_reconstructed_unmet
-            else:
-                # Stage 2 strictly preserved the primary optimum within numerical precision.
+            # Exact physical objective comparison:
+            # Stage 2 is accepted if and only if its physical unmet demand is less than or equal to Stage 1.
+            # Any positive physical degradation, no matter how small, triggers immediate fallback.
+            if stage2_exact_unmet <= stage1_exact_unmet:
                 stage2_accepted = True
                 lexicographic_fallback = False
                 allocations = stage2_allocations
                 reconstructed_weighted_unmet = stage2_reconstructed_unmet
+            else:
+                stage2_accepted = False
+                lexicographic_fallback = True
+                allocations = stage1_allocations
+                reconstructed_weighted_unmet = stage1_reconstructed_unmet
 
     else:
         # Standard weighted scalarized optimization
@@ -454,7 +508,9 @@ def solve_resource_allocation(
         "stage2_solver_unmet": float(round(stage2_solver_unmet, 4)) if stage2_solver_unmet is not None else None,
         "stage2_reconstructed_unmet": float(round(stage2_reconstructed_unmet, 4)) if stage2_reconstructed_unmet is not None else None,
         "reconstructed_weighted_unmet": float(round(reconstructed_weighted_unmet, 4)) if reconstructed_weighted_unmet is not None else None,
-        "audit_tolerance": float(round(audit_tolerance, 6)) if audit_tolerance is not None else None,
+        "audit_tolerance": 0.0 if lexicographic else None,
+        "exact_comparison": True if lexicographic else False,
+        "exact_deterioration": float(stage2_exact_unmet - stage1_exact_unmet) if (stage2_exact_unmet is not None and stage1_exact_unmet is not None) else None,
         "stage2_accepted": bool(stage2_accepted),
         "lexicographic_fallback": bool(lexicographic_fallback)
     }

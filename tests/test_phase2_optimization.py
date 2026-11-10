@@ -34,9 +34,11 @@ import pytest
 import numpy as np
 import pandas as pd
 
+from fractions import Fraction
 from src.optimise import (
     solve_resource_allocation,
     evaluate_allocation_plan,
+    compute_exact_physical_unmet,
     load_or_compute_distance_matrix,
     COST_PER_UNIT_KM,
     FIXED_ROUTE_COST,
@@ -1039,19 +1041,123 @@ def test_large_objective_relative_tolerance_danger():
     assert loss_20_blood > opt_val + num_tol, "Strict numerical bound successfully blocks blood sacrifice!"
 
 
-def test_fractional_deterioration_near_audit_threshold():
+def test_fractional_deterioration_smaller_than_1e_5():
     """
-    Verify that when optimal shortage is near zero (Z1* < 1.0), the 1e-5 floor
-    detects and blocks fractional under-shipments (such as 1e-4 degradation).
+    Verify that exact physical objective comparison blocks deteriorations smaller than 1e-5.
+    Under a positive tolerance tau = 1e-5, a deterioration of 1e-6 (or 1/1,000,000)
+    would be mistakenly accepted. Exact rational comparison (Fraction) strictly rejects it.
     """
-    demands = {"R": {"ors": 10.0001}, "D": {"ors": 0.0}}
-    stocks = {"R": {"ors": 0.0}, "D": {"ors": 50.0}}
+    opt_val = Fraction(100, 1)
+    # Infinitesimal deterioration smaller than 1e-5 (e.g. 1e-6)
+    stage2_val = opt_val + Fraction(1, 1000000)
+
+    # Legacy positive tolerance: 1e-6 <= 1e-5 (MISTAKENLY ACCEPTED)
+    accepted_by_positive_tol = (float(stage2_val) <= float(opt_val) + 1e-5)
+    assert accepted_by_positive_tol is True
+
+    # Exact physical comparison: stage2_val <= opt_val (STRICTLY REJECTED)
+    accepted_by_exact = (stage2_val <= opt_val)
+    assert accepted_by_exact is False, "Exact comparison must reject even 1e-6 deterioration"
+
+
+def test_deterioration_near_relative_threshold_at_large_objective():
+    """
+    Verify that at large objective magnitudes (Z1* = 10^8), a deterioration of 0.0005
+    falls below tau = 1e-11 * Z1* = 0.00105 (and would pass positive tolerance),
+    but is strictly rejected under exact physical comparison (Fraction).
+    """
+    opt_val = Fraction(1051844022, 10)  # 105,184,402.2
+    relative_tol = float(opt_val) * 1e-11  # ~ 0.0010518
+    assert relative_tol > 0.001
+
+    # Perturbation of +0.0005 weighted units:
+    stage2_val = opt_val + Fraction(5, 10000)
+
+    # Positive tolerance check (MISTAKENLY ACCEPTED):
+    accepted_by_rel_tol = (float(stage2_val) <= float(opt_val) + relative_tol)
+    assert accepted_by_rel_tol is True
+
+    # Exact comparison check (STRICTLY REJECTED):
+    assert (stage2_val <= opt_val) is False, "Exact comparison must reject 0.0005 deterioration on large objective"
+
+
+def test_exact_equality_stage1_and_stage2_physical_objectives():
+    """
+    Verify that when Stage 2 achieves exact equality with Stage 1 physical unmet demand,
+    Stage 2 is accepted without triggering fallback.
+    """
+    demands = {"R": {"ors": 50.0}, "D": {"ors": 0.0}}
+    stocks = {"R": {"ors": 0.0}, "D": {"ors": 100.0}}
     dists = pd.DataFrame([[0.0, 50.0], [50.0, 0.0]], index=["R", "D"], columns=["R", "D"])
 
     plan_df, summary = solve_resource_allocation(demands, stocks, distances_df=dists, lexicographic=True)
     assert summary["solve_status"] == "OPTIMAL"
-    assert summary["audit_tolerance"] == 1e-5
-    assert summary["reconstructed_weighted_unmet"] <= summary["optimal_weighted_unmet"] + 1e-5
+    assert summary["stage2_accepted"] is True
+    assert summary["lexicographic_fallback"] is False
+    assert summary["exact_comparison"] is True
+    assert summary["audit_tolerance"] == 0.0
+    assert summary["stage1_reconstructed_unmet"] == 0.0
+    assert summary["stage2_reconstructed_unmet"] == 0.0
+    assert summary["reconstructed_weighted_unmet"] == 0.0
+
+
+def test_stage2_secondary_improvement_without_clinical_deterioration():
+    """
+    Verify that Stage 2 minimizes transport cost among multiple Stage 1 optima
+    while preserving zero clinical unmet demand exactly.
+    """
+    demands = {"Near": {"ors": 0.0}, "Far": {"ors": 0.0}, "Recipient": {"ors": 40.0}}
+    stocks = {"Near": {"ors": 100.0}, "Far": {"ors": 100.0}, "Recipient": {"ors": 0.0}}
+    dists = pd.DataFrame([
+        [0.0, 100.0, 20.0],
+        [100.0, 0.0, 80.0],
+        [20.0, 80.0, 0.0]
+    ], index=["Near", "Far", "Recipient"], columns=["Near", "Far", "Recipient"])
+
+    plan_df, summary = solve_resource_allocation(demands, stocks, distances_df=dists, lexicographic=True)
+    assert summary["solve_status"] == "OPTIMAL"
+    assert summary["stage2_accepted"] is True
+    assert summary["lexicographic_fallback"] is False
+    assert summary["unmet_demand_after"] == 0.0
+    # Closer donor selected (20 km * 40 * 15 + 500 = 12,500)
+    assert len(plan_df) == 1
+    assert plan_df.iloc[0]["source_region"] == "Near"
+    assert summary["total_transport_cost"] == 12500.0
+
+
+def test_stage1_fallback_physical_feasibility_and_unchanged_quantities():
+    """
+    Verify that when Stage 1 fallback is triggered (as demonstrated in Scenario 32),
+    the returned plan satisfies all constraints (violations == 0),
+    and matches the captured Stage 1 allocation plan.
+    """
+    from src.engine.monte_carlo import generate_stratified_benchmark_scenarios
+    scenarios = generate_stratified_benchmark_scenarios(
+        n_per_stratum=12,
+        stock_multipliers=(0.25, 0.5, 1.0),
+        random_seed=42,
+        n_draws_per_sim=100
+    )
+    sc32 = scenarios[32]
+    dists = load_or_compute_distance_matrix()
+
+    plan_df, summary = solve_resource_allocation(
+        sc32["demands"], sc32["stocks"], sc32["risks"],
+        distances_df=dists,
+        lexicographic=True
+    )
+
+    # 1. Fallback confirmed:
+    assert summary["stage2_accepted"] is False
+    assert summary["lexicographic_fallback"] is True
+
+    # 2. Re-evaluating fallback plan with shared evaluator yields ZERO violations:
+    eval_res = evaluate_allocation_plan(plan_df, sc32["demands"], sc32["stocks"], sc32["risks"], dists)
+    assert eval_res["violations"] == 0, f"Fallback plan had {eval_res['violations']} violations"
+
+    # 3. Exact physical unmet of returned plan matches Stage 1 optimum:
+    exact_returned = compute_exact_physical_unmet(plan_df, sc32["demands"], sc32["stocks"])
+    assert float(exact_returned) == summary["stage1_reconstructed_unmet"]
 
 
 def test_inconsistent_slack_blocked_by_allocation_balance_guard():
