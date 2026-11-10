@@ -3,6 +3,7 @@ from fastapi import APIRouter, Request, HTTPException, status, Depends
 from fastapi.responses import JSONResponse, FileResponse
 from pathlib import Path
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from api.models import User
 from api.database import get_db
@@ -132,7 +133,7 @@ async def get_shap_summary_plot():
 @router.post("/api/explain", response_model=LocalExplanationResponse, summary="Explain Casualty Prediction via Ridge SHAP", tags=["Explainability"])
 async def explain_prediction(request: Request, body: ImpactPredictionRequest):
     """Explain Ridge model prediction via exact linear decomposition (beta * z) with optional XGBoost Tree-SHAP comparison."""
-    return explain_prediction_service(request.app.state, body)
+    return await run_in_threadpool(explain_prediction_service, request.app.state, body)
 
 @router.post("/api/stock", response_model=UserStockResponse, summary="Upload or Edit Custom District Stocks", tags=["Inventory"])
 async def upload_or_edit_stock(
@@ -176,7 +177,7 @@ async def simulate_scenario(
 ):
     """Execute 2,000-draw Monte-Carlo demand simulation and shortage risk classification across districts."""
     rate_limit_simulate(request)
-    return simulate_service(request.app.state, body, user=current_user, db=db)
+    return await run_in_threadpool(simulate_service, request.app.state, body, user=current_user, db=db)
 
 @router.post("/api/allocate", response_model=AllocationResponse, summary="Solve Resource Allocation MIP", tags=["Optimization"])
 async def allocate_resources(
@@ -186,4 +187,4 @@ async def allocate_resources(
     db: Session = Depends(get_db)
 ):
     """Solve multi-objective MIP resource allocation problem using Google OR-Tools SCIP solver."""
-    return allocate_service(request.app.state, body, user=current_user, db=db)
+    return await run_in_threadpool(allocate_service, request.app.state, body, user=current_user, db=db)

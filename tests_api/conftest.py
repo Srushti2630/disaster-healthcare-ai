@@ -33,9 +33,10 @@ def isolate_test_database(tmp_path_factory):
 
     test_engine = create_engine(
         db_url,
-        connect_args={"check_same_thread": False},
+        connect_args={"check_same_thread": False, "timeout": 15.0},
         echo=False
     )
+    api.database.configure_sqlite_engine(test_engine)
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
     from api import models  # noqa: F401

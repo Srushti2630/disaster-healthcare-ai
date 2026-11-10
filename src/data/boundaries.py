@@ -168,6 +168,16 @@ def load_or_create_district_boundaries() -> gpd.GeoDataFrame:
             gdf = pd.concat([gdf, p_gdf], ignore_index=True)
             
         gdf = gdf.dissolve(by="district", as_index=False)
+        gdf["geometry_provenance"] = gdf["district"].apply(
+            lambda d: "ESTIMATED" if (d == "Palghar" or not is_real) else "REAL"
+        )
+        gdf["is_synthetic"] = gdf["geometry_provenance"] == "ESTIMATED"
+        gdf["provenance_note"] = gdf["district"].apply(
+            lambda d: "Approximated bounding polygon from official centroid (19.69°N, 72.76°E) and 5,344 km² area due to 2014 Thane bifurcation"
+            if d == "Palghar" else ("Census 2011 boundary polygon" if is_real else "Approximated bounding polygon")
+        )
+        for col_name in ["lat", "lon", "area_sqkm", "pop_weight"]:
+            gdf[col_name] = gdf["district"].apply(lambda d: MAHARASHTRA_DISTRICTS.get(d, {}).get(col_name))
         gdf.attrs["is_real"] = is_real
         return gdf
 

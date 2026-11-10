@@ -45,26 +45,15 @@ async def lifespan(app: FastAPI):
         app.state.fac_df = pd.DataFrame()
         app.state.cleaned_facilities_df = pd.DataFrame()
 
-    # 2. Load GeoJSON Boundaries and Normalise
+    # 2. Load GeoJSON Boundaries and Normalise via Canonical Boundaries Module
     try:
-        if settings.BOUNDARIES_FILE.exists():
-            with open(settings.BOUNDARIES_FILE, "r", encoding="utf-8") as f:
-                geojson_obj = json.load(f)
-
-            # Normalise district property name across features
-            for feature in geojson_obj.get("features", []):
-                props = feature.get("properties", {})
-                # Ensure 'district' key exists
-                d_name = props.get("district") or props.get("District") or props.get("DISTRICT") or props.get("NAME_2")
-                if d_name:
-                    props["district"] = d_name.strip()
-            app.state.geojson = geojson_obj
-            logger.info("Loaded and normalised Maharashtra GeoJSON boundaries.")
-        else:
-            app.state.geojson = {"type": "FeatureCollection", "features": []}
-            logger.warning(f"Boundaries file not found at {settings.BOUNDARIES_FILE}")
+        from src.data.boundaries import load_or_create_district_boundaries
+        boundaries_gdf = load_or_create_district_boundaries()
+        geojson_obj = json.loads(boundaries_gdf.to_json())
+        app.state.geojson = geojson_obj
+        logger.info(f"Loaded and normalised {len(geojson_obj.get('features', []))} Maharashtra GeoJSON boundaries (canonical 35 districts with Palghar integration).")
     except Exception as e:
-        logger.error(f"Error loading GeoJSON: {e}")
+        logger.error(f"Error loading GeoJSON via boundaries module: {e}")
         app.state.geojson = {"type": "FeatureCollection", "features": []}
 
     # 3. Load Reports & Metrics

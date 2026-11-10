@@ -1,5 +1,6 @@
 """Tamper-evident SHA-256 hash-chained audit ledger for human decision governance."""
 import hashlib
+import threading
 from datetime import datetime, timezone
 from typing import Tuple, List, Optional, Dict, Any
 from sqlalchemy.orm import Session
@@ -11,6 +12,7 @@ from api.models import AuditEvent, User
 from api.config import settings
 
 GENESIS_HASH = "0000000000000000000000000000000000000000000000000000000000000000"
+_ledger_lock = threading.Lock()
 
 def get_min_confidence_threshold() -> float:
     """Read minimum confidence threshold for plan approval from config.yaml."""
@@ -62,41 +64,42 @@ def record_decision(
             )
         )
 
-    # 1. Fetch the latest block in the chain to get prev_hash
-    latest_event = db.query(AuditEvent).order_by(desc(AuditEvent.id)).first()
-    prev_hash = latest_event.current_hash if latest_event else GENESIS_HASH
+    with _ledger_lock:
+        # 1. Fetch the latest block in the chain to get prev_hash
+        latest_event = db.query(AuditEvent).order_by(desc(AuditEvent.id)).first()
+        prev_hash = latest_event.current_hash if latest_event else GENESIS_HASH
 
-    now_utc = datetime.now(timezone.utc)
-    timestamp_str = now_utc.strftime("%Y-%m-%d %H:%M:%S")
+        now_utc = datetime.now(timezone.utc)
+        timestamp_str = now_utc.strftime("%Y-%m-%d %H:%M:%S")
 
-    # 2. Compute current block hash
-    current_hash = compute_block_hash(
-        prev_hash=prev_hash,
-        timestamp_str=timestamp_str,
-        user_id=user.id,
-        simulation_id=simulation_id,
-        action=action,
-        reason_code=reason_code,
-        plan_hash=plan_hash,
-        confidence=confidence
-    )
+        # 2. Compute current block hash
+        current_hash = compute_block_hash(
+            prev_hash=prev_hash,
+            timestamp_str=timestamp_str,
+            user_id=user.id,
+            simulation_id=simulation_id,
+            action=action,
+            reason_code=reason_code,
+            plan_hash=plan_hash,
+            confidence=confidence
+        )
 
-    # 3. Create persistent audit record
-    event = AuditEvent(
-        user_id=user.id,
-        simulation_id=simulation_id,
-        action=action,
-        reason_code=reason_code,
-        plan_hash=plan_hash,
-        confidence=round(float(confidence), 3),
-        prev_hash=prev_hash,
-        current_hash=current_hash,
-        created_at=now_utc
-    )
-    db.add(event)
-    db.commit()
-    db.refresh(event)
-    return event
+        # 3. Create persistent audit record
+        event = AuditEvent(
+            user_id=user.id,
+            simulation_id=simulation_id,
+            action=action,
+            reason_code=reason_code,
+            plan_hash=plan_hash,
+            confidence=round(float(confidence), 3),
+            prev_hash=prev_hash,
+            current_hash=current_hash,
+            created_at=now_utc
+        )
+        db.add(event)
+        db.commit()
+        db.refresh(event)
+        return event
 
 def verify_chain(db: Session) -> Tuple[bool, int, Optional[Dict[str, Any]]]:
     """
