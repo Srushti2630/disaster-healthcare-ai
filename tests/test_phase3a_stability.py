@@ -17,7 +17,7 @@ from starlette.testclient import TestClient
 from api.main import app
 import api.database
 from api.database import Base, get_db, configure_sqlite_engine
-from api.models import User, UserRole, AuditEvent
+from api.models import User, UserRole, AuditEvent, SimulationRecord
 from api.auth import create_access_token, hash_password
 from api.audit_ledger import record_decision, verify_chain
 import src.data.boundaries as boundaries
@@ -244,6 +244,17 @@ def test_concurrent_audit_writes_and_ledger_integrity():
         db.commit()
         db.refresh(user)
     user_id = user.id
+
+    # Pre-populate SimulationRecords to satisfy SQLite foreign key constraints
+    for i in range(12):
+        if not db.query(SimulationRecord).filter(SimulationRecord.id == f"sim_{i}").first():
+            db.add(SimulationRecord(
+                id=f"sim_{i}",
+                user_id=user_id,
+                inputs_json="{}",
+                results_hash="0" * 64
+            ))
+    db.commit()
     db.close()
 
     errors = []

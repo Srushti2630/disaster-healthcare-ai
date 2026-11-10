@@ -5,12 +5,13 @@ from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from api.config import settings
 
 def configure_sqlite_engine(target_engine):
-    """Attach SQLite connect listener to enforce WAL journal mode and 15s busy timeout."""
+    """Attach SQLite connect listener to enforce WAL journal mode, 15s busy timeout, and foreign keys."""
     @event.listens_for(target_engine, "connect")
     def set_sqlite_pragma(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA busy_timeout=15000")
+        cursor.execute("PRAGMA foreign_keys = ON")
         cursor.close()
 
 # SQLite connection args for multi-threaded FastAPI handlers
@@ -40,6 +41,17 @@ def get_db():
         db.close()
 
 def init_db():
-    """Create all tables defined in Base metadata."""
+    """Create all tables defined in Base metadata and run additive migrations."""
     from api import models  # noqa: F401
+    from sqlalchemy import text
     Base.metadata.create_all(bind=engine)
+    # Safe additive migration: ensure allocation_id column exists on audit_events in SQLite
+    if settings.DATABASE_URL.startswith("sqlite"):
+        try:
+            with engine.connect() as conn:
+                cols = [row[1] for row in conn.execute(text("PRAGMA table_info(audit_events)")).fetchall()]
+                if cols and "allocation_id" not in cols:
+                    conn.execute(text("ALTER TABLE audit_events ADD COLUMN allocation_id VARCHAR(36) REFERENCES allocations(id)"))
+                    conn.commit()
+        except Exception:
+            pass

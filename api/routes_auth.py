@@ -1,12 +1,12 @@
 """Authentication and Audit Ledger route handlers."""
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from api.database import get_db
-from api.models import User, UserRole, AuditEvent, SimulationRecord
+from api.models import User, UserRole, AuditEvent, SimulationRecord, AllocationRecord
 from api.schemas import (
     UserRegisterRequest, UserLoginRequest, TokenResponse, UserResponse,
     AuditDecisionRequest, AuditEventResponse, AuditListResponse, AuditVerifyResponse
@@ -138,6 +138,42 @@ async def record_audit_decision(
     - Cryptographically hash-chained with SHA-256 to prior blocks.
     - Blocks APPROVE with HTTP 409 if confidence is below safety threshold in config.yaml.
     """
+    # Validate allocation if allocation_id supplied
+    effective_sim_id = body.simulation_id
+    if body.allocation_id:
+        alloc = db.query(AllocationRecord).filter(AllocationRecord.id == body.allocation_id).first()
+        if not alloc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Allocation '{body.allocation_id}' not found."
+            )
+        if alloc.status == "UNLINKED_LEGACY":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot approve an unlinked legacy allocation lacking a verified simulation record."
+            )
+        if alloc.plan_hash != body.plan_hash:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Provided plan_hash '{body.plan_hash}' does not match persisted allocation plan_hash '{alloc.plan_hash}'."
+            )
+        if alloc.simulation_id:
+            if effective_sim_id and effective_sim_id != alloc.simulation_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Provided simulation_id '{effective_sim_id}' does not match allocation simulation_id '{alloc.simulation_id}'."
+                )
+            effective_sim_id = alloc.simulation_id
+
+    # If simulation_id is supplied, validate it exists in simulations table
+    if effective_sim_id:
+        sim = db.query(SimulationRecord).filter(SimulationRecord.id == effective_sim_id).first()
+        if not sim:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Simulation '{effective_sim_id}' not found. Cannot reference an unpersisted simulation in audit ledger."
+            )
+
     event = record_decision(
         db=db,
         user=current_user,
@@ -145,13 +181,23 @@ async def record_audit_decision(
         reason_code=body.reason_code,
         plan_hash=body.plan_hash,
         confidence=body.confidence,
-        simulation_id=body.simulation_id
+        simulation_id=effective_sim_id,
+        allocation_id=body.allocation_id
     )
+
+    # Update allocation status if allocation_id was provided
+    if body.allocation_id:
+        alloc = db.query(AllocationRecord).filter(AllocationRecord.id == body.allocation_id).first()
+        if alloc:
+            alloc.status = "APPROVED" if body.action.upper() == "APPROVE" else "REJECTED"
+            alloc.updated_at = datetime.now(timezone.utc)
+            db.commit()
 
     return AuditEventResponse(
         id=event.id,
         user_id=event.user_id,
         simulation_id=event.simulation_id,
+        allocation_id=event.allocation_id,
         action=event.action,
         reason_code=event.reason_code,
         plan_hash=event.plan_hash,
@@ -182,6 +228,7 @@ async def get_audit_log(
             id=e.id,
             user_id=e.user_id,
             simulation_id=e.simulation_id,
+            allocation_id=e.allocation_id,
             action=e.action,
             reason_code=e.reason_code,
             plan_hash=e.plan_hash,

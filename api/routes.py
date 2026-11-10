@@ -1,4 +1,6 @@
 import logging
+import uuid
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional, List
 from fastapi import APIRouter, Request, HTTPException, status, Depends, Query
 from fastapi.responses import JSONResponse, FileResponse
@@ -8,9 +10,10 @@ from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger(__name__)
 
-from api.models import User, UserCustomStock
+from api.models import User, UserCustomStock, SimulationRecord, AllocationRecord
 from api.database import get_db
 from api.auth import require_role, rate_limit_simulate
+from api.audit_ledger import compute_canonical_simulation_hash, compute_canonical_plan_hash
 
 from api.schemas import (
     DistrictListResponse, MetricsResponse, BacktestResponse, BaselineResponse,
@@ -54,8 +57,9 @@ async def readiness_check(request: Request) -> Dict[str, Any]:
     surrogate_loaded = hasattr(request.app.state, "surrogate_bundle") and request.app.state.surrogate_bundle is not None
     shap_loaded = hasattr(request.app.state, "shap_explainer") and request.app.state.shap_explainer is not None
     dist_loaded = hasattr(request.app.state, "distances_df") and request.app.state.distances_df is not None
+    clinical_loaded = hasattr(request.app.state, "clinical_model") and request.app.state.clinical_model is not None
 
-    if not is_ready or not (pop_loaded and dist_loaded and models_loaded):
+    if not is_ready or not (pop_loaded and dist_loaded and models_loaded and clinical_loaded):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="System is not ready: required data or model artifacts are still loading or unavailable."
@@ -69,7 +73,8 @@ async def readiness_check(request: Request) -> Dict[str, Any]:
             "impact_model": models_loaded,
             "surrogate_classifier": surrogate_loaded,
             "shap_explainer": shap_loaded,
-            "distance_matrix": dist_loaded
+            "distance_matrix": dist_loaded,
+            "clinical_model": clinical_loaded
         }
     }
 
@@ -197,7 +202,40 @@ async def simulate_scenario(
         except Exception as e:
             logger.warning(f"Error querying UserCustomStock: {e}")
 
-    return await run_in_threadpool(simulate_service, request.app.state, body, custom_stocks=user_custom_map)
+    # Compute simulation in threadpool
+    res: SimulationResponse = await run_in_threadpool(simulate_service, request.app.state, body, custom_stocks=user_custom_map)
+
+    # DEF-3C-01: Persist SimulationRecord in request/database thread
+    try:
+        inputs_dict = {
+            "epicentre": body.epicentre,
+            "hazard": body.hazard.value if hasattr(body.hazard, "value") else str(body.hazard),
+            "severity": float(body.severity),
+            "planning_level": body.planning_level.value if hasattr(body.planning_level, "value") else str(body.planning_level),
+            "stock_adjustment_pct": float(body.stock_adjustment_pct),
+            "affected_override": body.affected_override,
+            "custom_stocks": user_custom_map if user_custom_map else None
+        }
+        canonical_inputs_json, results_hash = compute_canonical_simulation_hash(inputs_dict, res.results)
+
+        sim_record = SimulationRecord(
+            id=res.simulation_id,
+            user_id=current_user.id if current_user else None,
+            inputs_json=canonical_inputs_json,
+            results_hash=results_hash,
+            created_at=datetime.now(timezone.utc)
+        )
+        db.add(sim_record)
+        db.commit()
+    except Exception as e:
+        logger.error(f"Failed to persist SimulationRecord: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to persist simulation record to database."
+        )
+
+    return res
 
 @router.post("/api/allocate", response_model=AllocationResponse, summary="Solve Resource Allocation MIP", tags=["Optimization"])
 async def allocate_resources(
@@ -207,6 +245,16 @@ async def allocate_resources(
     db: Session = Depends(get_db)
 ):
     """Solve multi-objective MIP resource allocation problem using Google OR-Tools SCIP solver."""
+    # DEF-3C-02: Validate simulation_id if provided
+    sim_record = None
+    if body.simulation_id:
+        sim_record = db.query(SimulationRecord).filter(SimulationRecord.id == body.simulation_id).first()
+        if not sim_record:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Simulation '{body.simulation_id}' not found. Cannot link allocation to a nonexistent simulation."
+            )
+
     # Task E: Extract user custom stock before threadpool offload, passing plain dict
     user_custom_map: Dict[str, Dict[str, float]] = {}
     if body.custom_stocks:
@@ -221,7 +269,44 @@ async def allocate_resources(
         except Exception as e:
             logger.warning(f"Error querying UserCustomStock: {e}")
 
-    return await run_in_threadpool(allocate_service, request.app.state, body, custom_stocks=user_custom_map)
+    # Run optimizer in threadpool
+    res: AllocationResponse = await run_in_threadpool(allocate_service, request.app.state, body, custom_stocks=user_custom_map)
+
+    # DEF-3C-02: Compute canonical plan hash and persist AllocationRecord
+    try:
+        transfers_json, plan_hash = compute_canonical_plan_hash(res.transfers)
+        alloc_id = str(uuid.uuid4())
+        alloc_status = "PENDING_REVIEW" if body.simulation_id else "UNLINKED_LEGACY"
+
+        alloc_record = AllocationRecord(
+            id=alloc_id,
+            simulation_id=body.simulation_id if body.simulation_id else None,
+            user_id=current_user.id if current_user else None,
+            plan_hash=plan_hash,
+            transfers_json=transfers_json,
+            status=alloc_status,
+            cost_index=res.cost_index,
+            unmet_demand_after=res.unmet_demand_after,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc)
+        )
+        db.add(alloc_record)
+        db.commit()
+
+        # Attach identifiers and plan hash to response
+        res.allocation_id = alloc_id
+        res.simulation_id = body.simulation_id
+        res.plan_hash = plan_hash
+        res.status = alloc_status
+    except Exception as e:
+        logger.error(f"Failed to persist AllocationRecord: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to persist allocation record to database."
+        )
+
+    return res
 
 # -------------------------------------------------------------
 # CLINICAL FORECASTING ENDPOINT

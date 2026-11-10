@@ -280,6 +280,10 @@ class AllocationResponse(BaseModel):
     transfers: List[TransferRow]
     constraint_checks: ConstraintCheck
     method_comparison: List[MethodComparisonSummary]
+    allocation_id: Optional[str] = None
+    simulation_id: Optional[str] = None
+    plan_hash: Optional[str] = None
+    status: Optional[str] = "PENDING_REVIEW"
 
 # -------------------------------------------------------------
 # AUTH & USER SCHEMAS
@@ -310,6 +314,7 @@ class UserResponse(BaseModel):
 # -------------------------------------------------------------
 class AuditDecisionRequest(BaseModel):
     simulation_id: Optional[str] = None
+    allocation_id: Optional[str] = None
     action: str = Field(..., description="'APPROVE' or 'REJECT'")
     reason_code: str = Field(..., description="Standardized operational reason code")
     plan_hash: str = Field(..., description="SHA-256 hash of the proposed allocation plan")
@@ -319,7 +324,8 @@ class AuditEventResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     user_id: int
-    simulation_id: Optional[str]
+    simulation_id: Optional[str] = None
+    allocation_id: Optional[str] = None
     action: str
     reason_code: str
     plan_hash: str

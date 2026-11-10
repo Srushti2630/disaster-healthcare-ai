@@ -1,10 +1,11 @@
 """Tamper-evident SHA-256 hash-chained audit ledger for human decision governance."""
 import hashlib
+import json
 import threading
 from datetime import datetime, timezone
 from typing import Tuple, List, Optional, Dict, Any
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, text
 from fastapi import HTTPException, status
 import yaml
 
@@ -13,6 +14,73 @@ from api.config import settings
 
 GENESIS_HASH = "0000000000000000000000000000000000000000000000000000000000000000"
 _ledger_lock = threading.Lock()
+
+def compute_canonical_simulation_hash(inputs: Dict[str, Any], results: List[Any]) -> Tuple[str, str]:
+    """
+    Compute canonical JSON representation of simulation inputs and deterministic SHA-256 hash of inputs + results.
+    Returns (inputs_json, results_hash).
+    """
+    canonical_inputs_json = json.dumps(inputs, sort_keys=True, separators=(",", ":"))
+
+    simplified_results = []
+    for r in results:
+        if hasattr(r, "model_dump"):
+            d = r.model_dump()
+        elif hasattr(r, "dict"):
+            d = r.dict()
+        elif isinstance(r, dict):
+            d = r
+        else:
+            d = r.__dict__
+        simplified_results.append({
+            "district": str(d.get("district")),
+            "medicine": str(d.get("medicine")),
+            "demand_p10": round(float(d.get("demand_p10", 0.0)), 2),
+            "demand_p50": round(float(d.get("demand_p50", 0.0)), 2),
+            "demand_p75": round(float(d.get("demand_p75", 0.0)), 2),
+            "demand_p90": round(float(d.get("demand_p90", 0.0)), 2),
+            "selected_planning_demand": round(float(d.get("selected_planning_demand", 0.0)), 2),
+            "available_stock": round(float(d.get("available_stock", 0.0)), 2),
+            "shortage_probability": round(float(d.get("shortage_probability", 0.0)), 4),
+            "risk_level": str(d.get("risk_level", "Low"))
+        })
+    simplified_results.sort(key=lambda x: (x["district"], x["medicine"]))
+    canonical_results_json = json.dumps(simplified_results, sort_keys=True, separators=(",", ":"))
+
+    combined = f"{canonical_inputs_json}|{canonical_results_json}".encode("utf-8")
+    results_hash = hashlib.sha256(combined).hexdigest()
+    return canonical_inputs_json, results_hash
+
+def compute_canonical_plan_hash(transfers: List[Any]) -> Tuple[str, str]:
+    """
+    Compute canonical JSON representation of transfer plan and deterministic SHA-256 hash.
+    Stably sorted by (source_region, dest_region, medicine).
+    Returns (transfers_json, plan_hash).
+    """
+    simplified = []
+    for t in transfers:
+        if hasattr(t, "model_dump"):
+            d = t.model_dump()
+        elif hasattr(t, "dict"):
+            d = t.dict()
+        elif isinstance(t, dict):
+            d = t
+        else:
+            d = t.__dict__
+        simplified.append({
+            "source_region": str(d.get("source_region")),
+            "dest_region": str(d.get("dest_region")),
+            "medicine": str(d.get("medicine")),
+            "quantity": int(d.get("quantity", 0)),
+            "distance_km": round(float(d.get("distance_km", 0.0)), 2),
+            "cost_index": round(float(d.get("cost_index", 0.0)), 2),
+            "priority": str(d.get("priority", "STANDARD")),
+            "confidence": round(float(d.get("confidence", 0.85)), 3)
+        })
+    simplified.sort(key=lambda x: (x["source_region"], x["dest_region"], x["medicine"]))
+    transfers_json = json.dumps(simplified, sort_keys=True, separators=(",", ":"))
+    plan_hash = hashlib.sha256(transfers_json.encode("utf-8")).hexdigest()
+    return transfers_json, plan_hash
 
 def get_min_confidence_threshold() -> float:
     """Read minimum confidence threshold for plan approval from config.yaml."""
@@ -47,7 +115,8 @@ def record_decision(
     reason_code: str,
     plan_hash: str,
     confidence: float,
-    simulation_id: Optional[str] = None
+    simulation_id: Optional[str] = None,
+    allocation_id: Optional[str] = None
 ) -> AuditEvent:
     """Record a cryptographically hash-chained officer review decision."""
     action = action.upper()
@@ -65,7 +134,14 @@ def record_decision(
         )
 
     with _ledger_lock:
-        # 1. Fetch the latest block in the chain to get prev_hash
+        # SQLite serialization: acquire exclusive reserved write lock to serialize read-latest and insert
+        if db.bind and db.bind.dialect.name == "sqlite":
+            try:
+                db.execute(text("BEGIN IMMEDIATE"))
+            except Exception:
+                pass  # If transaction is already active or non-sqlite
+
+        # 1. Fetch the latest block in the chain inside the serialized transaction
         latest_event = db.query(AuditEvent).order_by(desc(AuditEvent.id)).first()
         prev_hash = latest_event.current_hash if latest_event else GENESIS_HASH
 
@@ -88,6 +164,7 @@ def record_decision(
         event = AuditEvent(
             user_id=user.id,
             simulation_id=simulation_id,
+            allocation_id=allocation_id,
             action=action,
             reason_code=reason_code,
             plan_hash=plan_hash,

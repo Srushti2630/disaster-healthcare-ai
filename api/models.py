@@ -27,6 +27,7 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
     simulations = relationship("SimulationRecord", back_populates="user", cascade="all, delete-orphan")
+    allocations = relationship("AllocationRecord", back_populates="user", cascade="all, delete-orphan")
     audit_events = relationship("AuditEvent", back_populates="user")
     custom_stocks = relationship("UserCustomStock", back_populates="user", cascade="all, delete-orphan")
 
@@ -53,7 +54,26 @@ class SimulationRecord(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
     user = relationship("User", back_populates="simulations")
+    allocations = relationship("AllocationRecord", back_populates="simulation", cascade="all, delete-orphan")
     audit_events = relationship("AuditEvent", back_populates="simulation")
+
+class AllocationRecord(Base):
+    __tablename__ = "allocations"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    simulation_id = Column(String(36), ForeignKey("simulations.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    plan_hash = Column(String(64), nullable=False)  # SHA-256 of canonical transfer plan
+    transfers_json = Column(Text, nullable=False)
+    status = Column(String(50), default="PENDING_REVIEW", nullable=False)
+    cost_index = Column(Float, nullable=True)
+    unmet_demand_after = Column(Float, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+    user = relationship("User", back_populates="allocations")
+    simulation = relationship("SimulationRecord", back_populates="allocations")
+    audit_events = relationship("AuditEvent", back_populates="allocation")
 
 class AuditEvent(Base):
     __tablename__ = "audit_events"
@@ -61,6 +81,7 @@ class AuditEvent(Base):
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     simulation_id = Column(String(36), ForeignKey("simulations.id"), nullable=True)
+    allocation_id = Column(String(36), ForeignKey("allocations.id"), nullable=True)
     action = Column(String(20), nullable=False)  # APPROVE or REJECT
     reason_code = Column(String(100), nullable=False)
     plan_hash = Column(String(64), nullable=False)  # SHA-256 of transfer plan
@@ -71,3 +92,4 @@ class AuditEvent(Base):
 
     user = relationship("User", back_populates="audit_events")
     simulation = relationship("SimulationRecord", back_populates="audit_events")
+    allocation = relationship("AllocationRecord", back_populates="audit_events")
