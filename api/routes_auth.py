@@ -152,6 +152,16 @@ async def record_audit_decision(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot approve an unlinked legacy allocation lacking a verified simulation record."
             )
+        if alloc.status in ["APPROVED", "REJECTED"]:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Allocation '{alloc.id}' has already been finalized with status '{alloc.status}'. Cannot submit duplicate or conflicting decision."
+            )
+        if alloc.status != "PENDING_REVIEW":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Allocation '{alloc.id}' is in status '{alloc.status}' and cannot be reviewed."
+            )
         if alloc.plan_hash != body.plan_hash:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -185,14 +195,6 @@ async def record_audit_decision(
         allocation_id=body.allocation_id
     )
 
-    # Update allocation status if allocation_id was provided
-    if body.allocation_id:
-        alloc = db.query(AllocationRecord).filter(AllocationRecord.id == body.allocation_id).first()
-        if alloc:
-            alloc.status = "APPROVED" if body.action.upper() == "APPROVE" else "REJECTED"
-            alloc.updated_at = datetime.now(timezone.utc)
-            db.commit()
-
     return AuditEventResponse(
         id=event.id,
         user_id=event.user_id,
@@ -204,6 +206,7 @@ async def record_audit_decision(
         confidence=event.confidence,
         prev_hash=event.prev_hash,
         current_hash=event.current_hash,
+        block_version=getattr(event, "block_version", 2),
         created_at=event.created_at.isoformat()
     )
 
@@ -235,6 +238,7 @@ async def get_audit_log(
             confidence=e.confidence,
             prev_hash=e.prev_hash,
             current_hash=e.current_hash,
+            block_version=getattr(e, "block_version", 1),
             created_at=e.created_at.isoformat()
         )
         for e in events

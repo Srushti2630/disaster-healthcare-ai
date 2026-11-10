@@ -88,6 +88,7 @@ class AuditEvent(Base):
     confidence = Column(Float, nullable=False)
     prev_hash = Column(String(64), nullable=False)  # Previous block SHA-256
     current_hash = Column(String(64), nullable=False)  # Current block SHA-256
+    block_version = Column(Integer, default=2, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
     user = relationship("User", back_populates="audit_events")

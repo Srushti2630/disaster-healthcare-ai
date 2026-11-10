@@ -332,6 +332,7 @@ class AuditEventResponse(BaseModel):
     confidence: float
     prev_hash: str
     current_hash: str
+    block_version: int = 2
     created_at: str
 
 class AuditListResponse(BaseModel):

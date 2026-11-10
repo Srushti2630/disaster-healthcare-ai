@@ -21,6 +21,7 @@ from api.models import User, UserRole, SimulationRecord, AllocationRecord, Audit
 from api.audit_ledger import (
     compute_canonical_simulation_hash,
     compute_canonical_plan_hash,
+    compute_block_hash,
     record_decision,
     verify_chain,
     GENESIS_HASH
@@ -368,3 +369,397 @@ def test_readiness_probe_reports_clinical_model_and_fails_when_missing(client):
         assert "not ready" in res_missing.json()["message"].lower()
     finally:
         app.state.clinical_model = saved_model
+
+
+# ============================================================================
+# 7. ACT-3C-01: Atomic Decision and Allocation Status Transitions
+# ============================================================================
+def test_atomic_decision_and_allocation_status_commit(client, coordinator_token):
+    """Verify AuditEvent and AllocationRecord status change commit together in one transaction."""
+    headers = {"Authorization": f"Bearer {coordinator_token}"}
+
+    sim_res = client.post("/api/simulate", json={"epicentre": "Pune"}, headers=headers)
+    sim_id = sim_res.json()["simulation_id"]
+    alloc_res = client.post("/api/allocate", json={"simulation_id": sim_id, "epicentre": "Pune"}, headers=headers)
+    alloc_id = alloc_res.json()["allocation_id"]
+    plan_hash = alloc_res.json()["plan_hash"]
+
+    res = client.post("/api/audit/decision", json={
+        "allocation_id": alloc_id,
+        "simulation_id": sim_id,
+        "action": "APPROVE",
+        "reason_code": "CLINICAL_CAPACITY_CONFIRMED",
+        "plan_hash": plan_hash,
+        "confidence": 0.89
+    }, headers=headers)
+    assert res.status_code == 201
+    body = res.json()
+    assert body["block_version"] == 2
+    assert body["allocation_id"] == alloc_id
+
+    db = api.database.SessionLocal()
+    try:
+        alloc = db.query(AllocationRecord).filter(AllocationRecord.id == alloc_id).first()
+        event = db.query(AuditEvent).filter(AuditEvent.allocation_id == alloc_id).first()
+        assert alloc is not None
+        assert event is not None
+        assert alloc.status == "APPROVED"
+        assert event.action == "APPROVE"
+        assert event.block_version == 2
+    finally:
+        db.close()
+
+def test_atomic_rollback_on_failure():
+    """Verify that if an error occurs before/during commit, neither the status nor the audit event persists."""
+    db = api.database.SessionLocal()
+    try:
+        user = db.query(User).first()
+        sim_id = str(uuid.uuid4())
+        sim = SimulationRecord(id=sim_id, user_id=user.id, inputs_json="{}", results_hash="1"*64)
+        db.add(sim)
+        alloc_id = str(uuid.uuid4())
+        alloc = AllocationRecord(
+            id=alloc_id,
+            simulation_id=sim_id,
+            user_id=user.id,
+            plan_hash="2"*64,
+            transfers_json="[]",
+            status="PENDING_REVIEW"
+        )
+        db.add(alloc)
+        db.commit()
+
+        # Monkeypatch db.commit to simulate database failure during commit
+        from unittest.mock import patch
+        with patch.object(db, "commit", side_effect=RuntimeError("Simulated DB commit crash")):
+            with pytest.raises(RuntimeError, match="Simulated DB commit crash"):
+                record_decision(
+                    db=db,
+                    user=user,
+                    action="APPROVE",
+                    reason_code="TEST_ROLLBACK",
+                    plan_hash="2"*64,
+                    confidence=0.90,
+                    simulation_id=sim_id,
+                    allocation_id=alloc_id
+                )
+
+        # In a new session, verify that neither status change nor audit event was committed
+        verify_db = api.database.SessionLocal()
+        try:
+            alloc_fresh = verify_db.query(AllocationRecord).filter(AllocationRecord.id == alloc_id).first()
+            event_fresh = verify_db.query(AuditEvent).filter(AuditEvent.allocation_id == alloc_id).first()
+            assert alloc_fresh.status == "PENDING_REVIEW"
+            assert event_fresh is None
+        finally:
+            verify_db.close()
+    finally:
+        db.close()
+
+
+# ============================================================================
+# 8. ACT-3C-02: Terminal-State Protection & Duplicate Decision Prevention
+# ============================================================================
+def test_terminal_state_protection_prevents_duplicate_or_conflicting_decisions(client, coordinator_token):
+    """Verify allocations in APPROVED or REJECTED state reject further decisions with HTTP 409 Conflict."""
+    headers = {"Authorization": f"Bearer {coordinator_token}"}
+
+    # Case 1: Finalized as APPROVED
+    sim_res1 = client.post("/api/simulate", json={"epicentre": "Satara"}, headers=headers)
+    sim_id1 = sim_res1.json()["simulation_id"]
+    alloc_res1 = client.post("/api/allocate", json={"simulation_id": sim_id1, "epicentre": "Satara"}, headers=headers)
+    alloc_id1 = alloc_res1.json()["allocation_id"]
+    plan_hash1 = alloc_res1.json()["plan_hash"]
+
+    # First APPROVE -> succeeds
+    res_app1 = client.post("/api/audit/decision", json={
+        "allocation_id": alloc_id1,
+        "action": "APPROVE",
+        "reason_code": "APPROVED_INITIAL",
+        "plan_hash": plan_hash1,
+        "confidence": 0.85
+    }, headers=headers)
+    assert res_app1.status_code == 201
+
+    # Repeat APPROVE -> 409 Conflict
+    res_app_dup = client.post("/api/audit/decision", json={
+        "allocation_id": alloc_id1,
+        "action": "APPROVE",
+        "reason_code": "APPROVED_AGAIN",
+        "plan_hash": plan_hash1,
+        "confidence": 0.85
+    }, headers=headers)
+    assert res_app_dup.status_code == 409
+    assert "already been finalized" in res_app_dup.json()["message"].lower()
+
+    # Conflicting REJECT on APPROVED -> 409 Conflict
+    res_rej_conflict = client.post("/api/audit/decision", json={
+        "allocation_id": alloc_id1,
+        "action": "REJECT",
+        "reason_code": "REJECT_LATER",
+        "plan_hash": plan_hash1,
+        "confidence": 0.85
+    }, headers=headers)
+    assert res_rej_conflict.status_code == 409
+    assert "already been finalized" in res_rej_conflict.json()["message"].lower()
+
+    # Case 2: Finalized as REJECTED
+    sim_res2 = client.post("/api/simulate", json={"epicentre": "Sangli"}, headers=headers)
+    sim_id2 = sim_res2.json()["simulation_id"]
+    alloc_res2 = client.post("/api/allocate", json={"simulation_id": sim_id2, "epicentre": "Sangli"}, headers=headers)
+    alloc_id2 = alloc_res2.json()["allocation_id"]
+    plan_hash2 = alloc_res2.json()["plan_hash"]
+
+    # First REJECT -> succeeds
+    res_rej1 = client.post("/api/audit/decision", json={
+        "allocation_id": alloc_id2,
+        "action": "REJECT",
+        "reason_code": "COST_EXCESSIVE",
+        "plan_hash": plan_hash2,
+        "confidence": 0.85
+    }, headers=headers)
+    assert res_rej1.status_code == 201
+
+    # Repeat REJECT -> 409 Conflict
+    res_rej_dup = client.post("/api/audit/decision", json={
+        "allocation_id": alloc_id2,
+        "action": "REJECT",
+        "reason_code": "REJECT_AGAIN",
+        "plan_hash": plan_hash2,
+        "confidence": 0.85
+    }, headers=headers)
+    assert res_rej_dup.status_code == 409
+    assert "already been finalized" in res_rej_dup.json()["message"].lower()
+
+    # Conflicting APPROVE on REJECTED -> 409 Conflict
+    res_app_conflict = client.post("/api/audit/decision", json={
+        "allocation_id": alloc_id2,
+        "action": "APPROVE",
+        "reason_code": "APPROVE_LATER",
+        "plan_hash": plan_hash2,
+        "confidence": 0.85
+    }, headers=headers)
+    assert res_app_conflict.status_code == 409
+    assert "already been finalized" in res_app_conflict.json()["message"].lower()
+
+def test_concurrent_competing_decisions_on_same_allocation(client, coordinator_token):
+    """Verify that concurrent competing decisions on the same allocation yield exactly one 201 and one 409."""
+    headers = {"Authorization": f"Bearer {coordinator_token}"}
+
+    sim_res = client.post("/api/simulate", json={"epicentre": "Thane"}, headers=headers)
+    sim_id = sim_res.json()["simulation_id"]
+    alloc_res = client.post("/api/allocate", json={"simulation_id": sim_id, "epicentre": "Thane"}, headers=headers)
+    alloc_id = alloc_res.json()["allocation_id"]
+    plan_hash = alloc_res.json()["plan_hash"]
+
+    statuses = []
+
+    def make_decision(action, reason):
+        try:
+            r = client.post("/api/audit/decision", json={
+                "allocation_id": alloc_id,
+                "action": action,
+                "reason_code": reason,
+                "plan_hash": plan_hash,
+                "confidence": 0.91
+            }, headers=headers)
+            statuses.append(r.status_code)
+        except Exception as e:
+            statuses.append(str(e))
+
+    t1 = threading.Thread(target=make_decision, args=("APPROVE", "CONCURRENT_APPROVE"))
+    t2 = threading.Thread(target=make_decision, args=("REJECT", "CONCURRENT_REJECT"))
+
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    # Exactly one must succeed (201) and the other must be rejected (409)
+    assert sorted(statuses) == [201, 409], f"Unexpected status codes: {statuses}"
+
+
+# ============================================================================
+# 9. ACT-3C-03: Backward-Compatible v2 Hashing & Tamper-Evidence
+# ============================================================================
+def test_v2_block_hashing_binds_allocation_id_and_detects_tampering(client, coordinator_token):
+    """Verify v2 blocks bind allocation_id and tamper-evidence detects allocation_id mutation."""
+    headers = {"Authorization": f"Bearer {coordinator_token}"}
+
+    sim_res = client.post("/api/simulate", json={"epicentre": "Nagpur"}, headers=headers)
+    sim_id = sim_res.json()["simulation_id"]
+    alloc_res = client.post("/api/allocate", json={"simulation_id": sim_id, "epicentre": "Nagpur"}, headers=headers)
+    alloc_id = alloc_res.json()["allocation_id"]
+    plan_hash = alloc_res.json()["plan_hash"]
+
+    res = client.post("/api/audit/decision", json={
+        "allocation_id": alloc_id,
+        "action": "APPROVE",
+        "reason_code": "REGIONAL_DISPATCH_AUTHORIZED",
+        "plan_hash": plan_hash,
+        "confidence": 0.94
+    }, headers=headers)
+    assert res.status_code == 201
+    event_id = res.json()["id"]
+
+    db = api.database.SessionLocal()
+    try:
+        # 1. Chain must be valid initially
+        is_valid, _, _ = verify_chain(db)
+        assert is_valid is True
+
+        # Create another valid allocation to test swapping allocation_id without violating foreign key constraints
+        user = db.query(User).first()
+        other_alloc_id = str(uuid.uuid4())
+        other_alloc = AllocationRecord(
+            id=other_alloc_id,
+            simulation_id=sim_id,
+            user_id=user.id,
+            plan_hash="b" * 64,
+            transfers_json="[]",
+            status="PENDING_REVIEW"
+        )
+        db.add(other_alloc)
+        db.commit()
+
+        # 2. Tamper with allocation_id in the newly created v2 block (swap to other_alloc_id)
+        event = db.query(AuditEvent).filter(AuditEvent.id == event_id).first()
+        original_alloc_id = event.allocation_id
+        event.allocation_id = other_alloc_id
+        db.commit()
+
+        is_valid, _, broken_info = verify_chain(db)
+        assert is_valid is False
+        assert broken_info["error_type"] == "BLOCK_TAMPERING_DETECTED"
+        assert broken_info["broken_row_id"] == event_id
+
+        # 3. Restore original allocation_id -> chain valid again
+        event.allocation_id = original_alloc_id
+        db.commit()
+        is_valid, _, _ = verify_chain(db)
+        assert is_valid is True
+    finally:
+        db.close()
+
+def test_v1_legacy_compatibility_and_mixed_chain():
+    """Verify legacy v1 blocks (without allocation_id binding) verify successfully and chain into v2 blocks."""
+    db = api.database.SessionLocal()
+    try:
+        user = db.query(User).first()
+        from datetime import datetime, timezone
+        now_utc = datetime.now(timezone.utc)
+        timestamp_str = now_utc.strftime("%Y-%m-%d %H:%M:%S")
+
+        from sqlalchemy import desc
+        latest = db.query(AuditEvent).order_by(desc(AuditEvent.id)).first()
+        prev_hash = latest.current_hash if latest else GENESIS_HASH
+
+        # 1. Construct a legacy v1 block manually using version 1 formula
+        v1_current_hash = compute_block_hash(
+            prev_hash=prev_hash,
+            timestamp_str=timestamp_str,
+            user_id=user.id,
+            simulation_id=None,
+            action="APPROVE",
+            reason_code="LEGACY_V1_REASON",
+            plan_hash="3" * 64,
+            confidence=0.88,
+            version=1
+        )
+
+        v1_event = AuditEvent(
+            user_id=user.id,
+            simulation_id=None,
+            allocation_id=None,
+            action="APPROVE",
+            reason_code="LEGACY_V1_REASON",
+            plan_hash="3" * 64,
+            confidence=0.88,
+            prev_hash=prev_hash,
+            current_hash=v1_current_hash,
+            block_version=1,
+            created_at=now_utc
+        )
+        db.add(v1_event)
+        db.commit()
+        db.refresh(v1_event)
+
+        # 2. Verify chain with legacy v1 block intact
+        is_valid, _, _ = verify_chain(db)
+        assert is_valid is True
+
+        # 3. Legacy limitation test: mutating allocation_id on v1 block does NOT break v1 hash
+        # (This documents why v2 was necessary to bind allocation_id cryptographically)
+        other_alloc_id = str(uuid.uuid4())
+        other_alloc = AllocationRecord(
+            id=other_alloc_id,
+            simulation_id=None,
+            user_id=user.id,
+            plan_hash="c" * 64,
+            transfers_json="[]",
+            status="PENDING_REVIEW"
+        )
+        db.add(other_alloc)
+        db.commit()
+
+        v1_event.allocation_id = other_alloc_id
+        db.commit()
+        is_valid, _, _ = verify_chain(db)
+        assert is_valid is True, "v1 hash did not bind allocation_id; mutating it should not break v1 verification"
+
+        # 4. Mutating plan_hash on v1 block DOES break verification
+        v1_event.plan_hash = "4" * 64
+        db.commit()
+        is_valid, _, broken_info = verify_chain(db)
+        assert is_valid is False
+        assert broken_info["error_type"] == "BLOCK_TAMPERING_DETECTED"
+
+        # Restore v1 plan_hash and allocation_id
+        v1_event.plan_hash = "3" * 64
+        v1_event.allocation_id = None
+        db.commit()
+        is_valid, _, _ = verify_chain(db)
+        assert is_valid is True
+
+        # 5. Append a v2 block linking to the v1 block to verify mixed chain
+        v2_event = record_decision(
+            db=db,
+            user=user,
+            action="APPROVE",
+            reason_code="V2_CHAINED_TO_V1",
+            plan_hash="5" * 64,
+            confidence=0.92
+        )
+        assert v2_event.prev_hash == v1_event.current_hash
+        assert v2_event.block_version == 2
+
+        is_valid, _, _ = verify_chain(db)
+        assert is_valid is True
+
+    finally:
+        db.close()
+
+def test_unsupported_block_version_detected():
+    """Verify an unrecognized block_version is reported as UNSUPPORTED_BLOCK_VERSION."""
+    db = api.database.SessionLocal()
+    try:
+        from sqlalchemy import desc
+        latest = db.query(AuditEvent).order_by(desc(AuditEvent.id)).first()
+        assert latest is not None
+
+        orig_version = latest.block_version
+        latest.block_version = 99  # Invalid version
+        db.commit()
+
+        is_valid, _, broken_info = verify_chain(db)
+        assert is_valid is False
+        assert broken_info["error_type"] == "UNSUPPORTED_BLOCK_VERSION"
+        assert broken_info["unsupported_version"] == 99
+
+        # Restore version
+        latest.block_version = orig_version
+        db.commit()
+        is_valid, _, _ = verify_chain(db)
+        assert is_valid is True
+    finally:
+        db.close()

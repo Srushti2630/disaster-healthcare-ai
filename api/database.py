@@ -45,13 +45,16 @@ def init_db():
     from api import models  # noqa: F401
     from sqlalchemy import text
     Base.metadata.create_all(bind=engine)
-    # Safe additive migration: ensure allocation_id column exists on audit_events in SQLite
+    # Safe additive migration: ensure allocation_id and block_version columns exist on audit_events in SQLite
     if settings.DATABASE_URL.startswith("sqlite"):
         try:
             with engine.connect() as conn:
                 cols = [row[1] for row in conn.execute(text("PRAGMA table_info(audit_events)")).fetchall()]
                 if cols and "allocation_id" not in cols:
                     conn.execute(text("ALTER TABLE audit_events ADD COLUMN allocation_id VARCHAR(36) REFERENCES allocations(id)"))
+                    conn.commit()
+                if cols and "block_version" not in cols:
+                    conn.execute(text("ALTER TABLE audit_events ADD COLUMN block_version INTEGER NOT NULL DEFAULT 1"))
                     conn.commit()
         except Exception:
             pass
