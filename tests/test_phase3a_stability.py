@@ -190,13 +190,13 @@ def test_threadpool_simulation_and_allocation_concurrency(client, auth_headers):
     with ThreadPoolExecutor(max_workers=6) as executor:
         futures = [executor.submit(run_allocation) for _ in range(4)]
         ready_future = executor.submit(poll_ready)
-        
+
         alloc_results = [f.result() for f in futures]
         ready_future.result()
 
     for r in alloc_results:
         assert r.status_code == 200
-    
+
     # Assert readiness probe was responsive (< 200ms)
     assert len(ready_latencies) >= 5
     assert max(ready_latencies) < 200.0, f"Readiness probe exceeded 200ms: {max(ready_latencies)}ms"

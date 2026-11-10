@@ -340,3 +340,28 @@ class AuditVerifyResponse(BaseModel):
     broken_block: Optional[Dict[str, Any]] = None
     message: str
 
+
+# -------------------------------------------------------------
+# CLINICAL FORECASTING SCHEMAS
+# -------------------------------------------------------------
+class ClinicalForecastItem(BaseModel):
+    period_index: int = Field(..., description="Continuous temporal period index")
+    horizon_step: int = Field(..., description="Forecast horizon step in months (1-12)")
+    year: int = Field(..., description="Calendar year")
+    month: int = Field(..., description="Calendar month (1-12)")
+    service: str = Field(..., description="Clinical specialty service name")
+    predicted_visits: float = Field(..., description="Point prediction for monthly patient visits")
+    interval_lower: float = Field(..., description="Empirical 90% prediction interval lower bound")
+    interval_upper: float = Field(..., description="Empirical 90% prediction interval upper bound")
+    interval_width: float = Field(..., description="Prediction interval width")
+    methodology: str = Field(..., description="Prediction interval calibration methodology")
+    calibration_samples: int = Field(..., description="Number of pre-holdout calibration residual samples")
+
+
+class ClinicalForecastResponse(BaseModel):
+    model_name: str
+    model_version: str
+    generated_at: str
+    horizon_months: int
+    total_forecasts: int
+    forecasts: List[ClinicalForecastItem]

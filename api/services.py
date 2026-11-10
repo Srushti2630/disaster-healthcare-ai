@@ -23,7 +23,8 @@ from api.schemas import (
     StockItem, UpdateStockRequest, UserStockResponse,
     SimulationRequest, SimulationResponse, DistrictMedicineDemand,
     AllocationRequest, AllocationResponse, TransferRow, ConstraintCheck, MethodComparisonSummary,
-    PlanningLevel, ProvenanceTag
+    PlanningLevel, ProvenanceTag,
+    ClinicalForecastItem, ClinicalForecastResponse
 )
 from src.data.boundaries import MAHARASHTRA_DISTRICTS, haversine_distance
 from src.engine.demand import load_demand_params, estimate_district_stocks, get_impact_sigma
@@ -610,7 +611,8 @@ def simulate_service(
     app_state: Any,
     req: SimulationRequest,
     user: Optional[User] = None,
-    db: Optional[Session] = None
+    db: Optional[Session] = None,
+    custom_stocks: Optional[Dict[str, Dict[str, float]]] = None
 ) -> SimulationResponse:
     """Execute 2,000-draw Monte-Carlo demand simulation across Maharashtra districts."""
     if req.epicentre not in MAHARASHTRA_DISTRICTS:
@@ -665,10 +667,13 @@ def simulate_service(
         adjusted_stocks[d] = {m: round(qty * stock_multiplier, 1) for m, qty in meds.items()}
 
     # Check for custom user-provided stocks:
-    # 1. Direct from request body if present
-    # 2. Or from database for this user
+    # 1. Direct from passed detached custom_stocks dict if present (Task E: threadpool decoupling)
+    # 2. Direct from request body if present
+    # 3. Or from database for this user (fallback)
     user_custom_map: Dict[str, Dict[str, float]] = {}
-    if req.custom_stocks:
+    if custom_stocks is not None:
+        user_custom_map = custom_stocks
+    elif req.custom_stocks:
         user_custom_map = req.custom_stocks
     elif user is not None and db is not None:
         try:
@@ -739,7 +744,8 @@ def allocate_service(
     app_state: Any,
     req: AllocationRequest,
     user: Optional[User] = None,
-    db: Optional[Session] = None
+    db: Optional[Session] = None,
+    custom_stocks: Optional[Dict[str, Dict[str, float]]] = None
 ) -> AllocationResponse:
     """Solve inter-district resource allocation MIP problem and check constraints."""
     epicentre = req.epicentre or "Pune"
@@ -755,7 +761,7 @@ def allocate_service(
         stock_adjustment_pct=req.stock_adjustment_pct or 0.0,
         custom_stocks=req.custom_stocks
     )
-    sim_res = simulate_service(app_state, sim_req, user=user, db=db)
+    sim_res = simulate_service(app_state, sim_req, user=user, db=db, custom_stocks=custom_stocks)
 
     # Format demands, stocks, and risks
     region_demands = {d: {} for d in MAHARASHTRA_DISTRICTS}
@@ -862,4 +868,37 @@ def allocate_service(
         transfers=transfer_records,
         constraint_checks=constraints,
         method_comparison=baselines
+    )
+
+
+def get_clinical_forecast_service(
+    app_state: Any,
+    horizon_months: int = 6,
+    service: Optional[str] = None
+) -> ClinicalForecastResponse:
+    """Generate recursive multi-step clinical forecasts with empirical prediction intervals."""
+    if getattr(app_state, "clinical_model", None) is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Clinical forecasting model not loaded or unavailable."
+        )
+
+    from src.forecast import forecast_service_demand
+    try:
+        raw_items = forecast_service_demand(
+            model_bundle=app_state.clinical_model,
+            horizon_months=horizon_months,
+            service=service
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    items = [ClinicalForecastItem(**item) for item in raw_items]
+    return ClinicalForecastResponse(
+        model_name=app_state.clinical_model.get("model_name", "Hybrid_Seasonal_Ridge"),
+        model_version="1.0.0",
+        generated_at=datetime.now(timezone.utc).isoformat(),
+        horizon_months=horizon_months,
+        total_forecasts=len(items),
+        forecasts=items
     )

@@ -137,6 +137,20 @@ async def lifespan(app: FastAPI):
         app.state.surrogate_bundle = None
         app.state.shap_explainer = None
 
+    # 4b. Load Clinical Forecaster (Hybrid Seasonal Ridge)
+    try:
+        from src.forecast import load_clinical_forecaster
+        clinical_path = Path("final_model.joblib")
+        if clinical_path.exists():
+            app.state.clinical_model = load_clinical_forecaster(clinical_path)
+            logger.info("Loaded certified Clinical Forecasting model (Hybrid Seasonal Ridge).")
+        else:
+            app.state.clinical_model = None
+            logger.warning(f"Clinical forecasting model not found at {clinical_path}")
+    except Exception as e:
+        logger.error(f"Error loading clinical forecasting model: {e}")
+        app.state.clinical_model = None
+
     # 5. Distance Matrix
     try:
         app.state.distances_df = load_or_compute_distance_matrix()

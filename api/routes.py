@@ -1,11 +1,14 @@
+import logging
 from typing import Any, Dict, Optional, List
-from fastapi import APIRouter, Request, HTTPException, status, Depends
+from fastapi import APIRouter, Request, HTTPException, status, Depends, Query
 from fastapi.responses import JSONResponse, FileResponse
 from pathlib import Path
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
-from api.models import User
+logger = logging.getLogger(__name__)
+
+from api.models import User, UserCustomStock
 from api.database import get_db
 from api.auth import require_role, rate_limit_simulate
 
@@ -15,13 +18,15 @@ from api.schemas import (
     LocalExplanationResponse, GlobalExplanationResponse,
     UpdateStockRequest, UserStockResponse,
     SimulationRequest, SimulationResponse,
-    AllocationRequest, AllocationResponse
+    AllocationRequest, AllocationResponse,
+    ClinicalForecastResponse
 )
 from api.services import (
     get_districts_service, get_metrics_service, get_backtest_service, get_baselines_service,
     predict_impact_service, get_global_explanation_service, explain_prediction_service,
     save_user_stock_service, get_user_stock_service, reset_user_stock_service,
-    simulate_service, allocate_service
+    simulate_service, allocate_service,
+    get_clinical_forecast_service
 )
 
 router = APIRouter()
@@ -177,7 +182,22 @@ async def simulate_scenario(
 ):
     """Execute 2,000-draw Monte-Carlo demand simulation and shortage risk classification across districts."""
     rate_limit_simulate(request)
-    return await run_in_threadpool(simulate_service, request.app.state, body, user=current_user, db=db)
+
+    # Task E: Extract user custom stock before threadpool offload, passing plain dict
+    user_custom_map: Dict[str, Dict[str, float]] = {}
+    if body.custom_stocks:
+        user_custom_map = body.custom_stocks
+    elif current_user is not None and db is not None:
+        try:
+            custom_rows = db.query(UserCustomStock).filter(UserCustomStock.user_id == current_user.id).all()
+            for r in custom_rows:
+                if r.district not in user_custom_map:
+                    user_custom_map[r.district] = {}
+                user_custom_map[r.district][r.medicine] = float(r.quantity)
+        except Exception as e:
+            logger.warning(f"Error querying UserCustomStock: {e}")
+
+    return await run_in_threadpool(simulate_service, request.app.state, body, custom_stocks=user_custom_map)
 
 @router.post("/api/allocate", response_model=AllocationResponse, summary="Solve Resource Allocation MIP", tags=["Optimization"])
 async def allocate_resources(
@@ -187,4 +207,33 @@ async def allocate_resources(
     db: Session = Depends(get_db)
 ):
     """Solve multi-objective MIP resource allocation problem using Google OR-Tools SCIP solver."""
-    return await run_in_threadpool(allocate_service, request.app.state, body, user=current_user, db=db)
+    # Task E: Extract user custom stock before threadpool offload, passing plain dict
+    user_custom_map: Dict[str, Dict[str, float]] = {}
+    if body.custom_stocks:
+        user_custom_map = body.custom_stocks
+    elif current_user is not None and db is not None:
+        try:
+            custom_rows = db.query(UserCustomStock).filter(UserCustomStock.user_id == current_user.id).all()
+            for r in custom_rows:
+                if r.district not in user_custom_map:
+                    user_custom_map[r.district] = {}
+                user_custom_map[r.district][r.medicine] = float(r.quantity)
+        except Exception as e:
+            logger.warning(f"Error querying UserCustomStock: {e}")
+
+    return await run_in_threadpool(allocate_service, request.app.state, body, custom_stocks=user_custom_map)
+
+# -------------------------------------------------------------
+# CLINICAL FORECASTING ENDPOINT
+# -------------------------------------------------------------
+@router.get("/api/forecast/clinical", response_model=ClinicalForecastResponse, summary="Clinical Specialty Demand Forecast", tags=["Forecasting"])
+async def get_clinical_forecast(
+    request: Request,
+    horizon_months: int = Query(default=6, ge=1, le=12, description="Forecast horizon in months (1-12)"),
+    service: Optional[str] = Query(default=None, description="Optional clinical service filter (ICU, Emergency, General Medicine, Surgery)")
+):
+    """
+    Generate recursive multi-step clinical forecasts across healthcare specialties
+    with empirical 90% prediction intervals calibrated from pre-holdout temporal residuals.
+    """
+    return await run_in_threadpool(get_clinical_forecast_service, request.app.state, horizon_months=horizon_months, service=service)
