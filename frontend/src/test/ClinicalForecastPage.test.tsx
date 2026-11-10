@@ -240,9 +240,9 @@ describe("ClinicalForecastPage (ForecastPage)", () => {
     await waitFor(() => {
       const banner = screen.getByTestId("uncertainty-methodology-banner");
       expect(banner).toBeInTheDocument();
-      expect(banner.textContent).toContain("Empirical Heuristic Training Bounds");
-      expect(banner.textContent).toContain("empirical heuristic training bounds");
-      expect(banner.textContent).toContain("not statistically validated 90% prediction intervals");
+      expect(banner.textContent).toContain(
+        "Uncertainty methodology: The displayed bounds are empirical heuristic training bounds calculated from in-sample training residuals (144 observations per specialty). Holdout evaluation coverage is reported as an observed result on a separate 12-month test period. These bounds are not statistically validated 90% prediction intervals and do not provide a formal finite-sample coverage guarantee."
+      );
     });
   });
 

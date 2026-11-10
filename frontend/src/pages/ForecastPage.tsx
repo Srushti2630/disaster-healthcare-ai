@@ -5,15 +5,13 @@ import { LoadingSpinner } from "../components/LoadingSpinner";
 import { ErrorAlert } from "../components/ErrorAlert";
 import {
   TrendingUp,
-  Calendar,
-  Layers,
-  Info,
   AlertTriangle,
   RefreshCw,
   Clock,
   Activity,
   BarChart3,
   CheckCircle2,
+  Info,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -27,7 +25,6 @@ import {
   Tooltip,
   Legend,
 } from "recharts";
-import { ClinicalForecastItem } from "../types";
 
 const MONTH_NAMES = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -71,14 +68,19 @@ export const ForecastPage: React.FC = () => {
     [forecastData]
   );
 
+  // Active records respecting filter
+  const activeForecasts = useMemo(() => {
+    if (selectedService === "ALL") return rawForecasts;
+    return rawForecasts.filter((item) => item.service === selectedService);
+  }, [rawForecasts, selectedService]);
+
   // Transform data for Recharts chronological multi-line or single-service view
   const chartData = useMemo(() => {
-    if (rawForecasts.length === 0) return [];
+    if (activeForecasts.length === 0) return [];
 
     if (selectedService !== "ALL") {
-      // Single specialty view: include point prediction and empirical bounds
-      return rawForecasts
-        .filter((item) => item.service === selectedService)
+      // Single specialty view: include point prediction and genuine bounds tuple
+      return activeForecasts
         .sort((a, b) => a.horizon_step - b.horizon_step)
         .map((item) => ({
           horizon_step: item.horizon_step,
@@ -88,14 +90,15 @@ export const ForecastPage: React.FC = () => {
           predicted_visits: item.predicted_visits,
           interval_lower: item.interval_lower,
           interval_upper: item.interval_upper,
+          interval_bounds: [item.interval_lower, item.interval_upper],
           interval_width: item.interval_width,
           service: item.service,
         }));
     }
 
-    // All specialties view: pivot points by horizon_step
+    // All specialties mode: pivot points by horizon_step so each service is displayed independently
     const stepsMap: Record<number, any> = {};
-    rawForecasts.forEach((item) => {
+    activeForecasts.forEach((item) => {
       const step = item.horizon_step;
       if (!stepsMap[step]) {
         stepsMap[step] = {
@@ -106,25 +109,24 @@ export const ForecastPage: React.FC = () => {
         };
       }
       stepsMap[step][item.service] = item.predicted_visits;
-      // also keep bound data for tooltip inspection
       stepsMap[step][`${item.service}_lower`] = item.interval_lower;
       stepsMap[step][`${item.service}_upper`] = item.interval_upper;
     });
 
     return Object.values(stepsMap).sort((a, b) => a.horizon_step - b.horizon_step);
-  }, [rawForecasts, selectedService]);
+  }, [activeForecasts, selectedService]);
 
-  // Aggregate KPI summary
+  // Aggregate KPI summary respecting selected service and horizon without double counting
   const summaryKPIs = useMemo(() => {
-    if (rawForecasts.length === 0) {
+    if (activeForecasts.length === 0) {
       return { totalVisits: 0, avgMonthlyVisits: 0, peakMonth: "N/A", peakVisits: 0, peakService: "N/A" };
     }
 
-    const total = rawForecasts.reduce((acc, curr) => acc + curr.predicted_visits, 0);
+    const total = activeForecasts.reduce((acc, curr) => acc + curr.predicted_visits, 0);
     const avg = total / Math.max(1, horizonMonths);
 
-    let peak = rawForecasts[0];
-    rawForecasts.forEach((item) => {
+    let peak = activeForecasts[0];
+    activeForecasts.forEach((item) => {
       if (item.predicted_visits > peak.predicted_visits) {
         peak = item;
       }
@@ -137,7 +139,7 @@ export const ForecastPage: React.FC = () => {
       peakVisits: Math.round(peak.predicted_visits),
       peakService: peak.service,
     };
-  }, [rawForecasts, horizonMonths]);
+  }, [activeForecasts, horizonMonths]);
 
   // Parse HTTP error codes if any
   const errorMessage = useMemo(() => {
@@ -168,7 +170,7 @@ export const ForecastPage: React.FC = () => {
             Clinical Specialty Demand Forecasting
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Autoregressive multi-step monthly patient visit projections across hospital clinical services.
+            Autoregressive multi-step service-level monthly patient visit projections across four clinical specialties.
           </p>
         </div>
 
@@ -188,21 +190,18 @@ export const ForecastPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Uncertainty & Methodology Advisory Banner */}
+      {/* Uncertainty & Methodology Advisory Banner (Exact Wording) */}
       <div
         className="bg-amber-50 border border-amber-200 rounded-xl p-4 sm:p-5 flex items-start gap-3.5 text-amber-900"
         data-testid="uncertainty-methodology-banner"
       >
         <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-        <div className="space-y-1 text-xs">
-          <h4 className="font-semibold text-amber-950 uppercase tracking-wider text-[11px]">
-            Forecast Interpretation & Uncertainty Methodology
-          </h4>
-          <p className="text-amber-900 leading-relaxed">
-            <strong>Primary Forecast:</strong> The solid trajectories represent monthly point predictions for patient visits generated by the Two-Stage Hybrid Forecaster (Seasonal Naive Base + Residual L2 Ridge Regression).
+        <div className="space-y-1.5 text-xs">
+          <p className="text-amber-950 font-semibold leading-relaxed">
+            Uncertainty methodology: The displayed bounds are empirical heuristic training bounds calculated from in-sample training residuals (144 observations per specialty). Holdout evaluation coverage is reported as an observed result on a separate 12-month test period. These bounds are not statistically validated 90% prediction intervals and do not provide a formal finite-sample coverage guarantee.
           </p>
           <p className="text-amber-800 leading-relaxed">
-            <strong>Empirical Heuristic Training Bounds:</strong> Upper and lower bounds are <em>empirical heuristic training bounds</em> derived from in-sample training residuals (144 historical observations per specialty). They indicate historical empirical dispersion and are <strong>not statistically validated 90% prediction intervals</strong>. Holdout evaluation coverage reflects empirical training fit and does not guarantee formal finite-sample coverage.
+            <strong>Primary Forecast:</strong> The solid trajectories represent service-level monthly point predictions for patient visits generated by the Two-Stage Hybrid Forecaster (Seasonal Naive Base + Residual L2 Ridge Regression).
           </p>
         </div>
       </div>
@@ -315,7 +314,7 @@ export const ForecastPage: React.FC = () => {
       )}
 
       {/* Empty State */}
-      {!isLoading && !error && rawForecasts.length === 0 && (
+      {!isLoading && !error && activeForecasts.length === 0 && (
         <div className="bg-white rounded-xl border border-slate-200 p-12 text-center space-y-3" data-testid="empty-forecast-state">
           <Info className="w-10 h-10 text-slate-400 mx-auto" />
           <h3 className="text-base font-semibold text-slate-800">No Forecast Observations Available</h3>
@@ -326,7 +325,7 @@ export const ForecastPage: React.FC = () => {
       )}
 
       {/* Main Content Area */}
-      {!isLoading && !error && rawForecasts.length > 0 && (
+      {!isLoading && !error && activeForecasts.length > 0 && (
         <>
           {/* KPI Summary Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" data-testid="forecast-kpis">
@@ -341,7 +340,7 @@ export const ForecastPage: React.FC = () => {
                 <span className="text-xs text-slate-500">visits</span>
               </div>
               <span className="text-[11px] text-slate-400 mt-1 block">
-                Cumulative across {horizonMonths} month{horizonMonths > 1 ? "s" : ""}
+                Cumulative across {horizonMonths} month{horizonMonths > 1 ? "s" : ""} ({selectedService === "ALL" ? "all 4 specialties" : selectedService})
               </span>
             </div>
 
@@ -356,7 +355,7 @@ export const ForecastPage: React.FC = () => {
                 <span className="text-xs text-slate-500">visits / mo</span>
               </div>
               <span className="text-[11px] text-slate-400 mt-1 block">
-                Rate per calendar month
+                Rate per month ({selectedService === "ALL" ? "all 4 specialties" : selectedService})
               </span>
             </div>
 
@@ -398,7 +397,7 @@ export const ForecastPage: React.FC = () => {
                   <span>Monthly Service Demand Forecast Trajectory</span>
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Chronological point forecasts {selectedService === "ALL" ? "across all 4 specialties" : `for ${selectedService}`} over the next {horizonMonths} months (visits / month).
+                  Chronological service-level point forecasts {selectedService === "ALL" ? "across all 4 specialties" : `for ${selectedService}`} over the next {horizonMonths} months (visits / month).
                 </p>
               </div>
 
@@ -436,6 +435,9 @@ export const ForecastPage: React.FC = () => {
                     />
                     <Tooltip
                       formatter={(value: any, name: string) => {
+                        if (name === "interval_bounds" && Array.isArray(value)) {
+                          return [`[${Number(value[0]).toFixed(1)}, ${Number(value[1]).toFixed(1)}] visits`, "Empirical heuristic training bounds"];
+                        }
                         if (name === "interval_upper") return [`${Number(value).toFixed(1)} visits`, "Empirical heuristic training upper bound"];
                         if (name === "interval_lower") return [`${Number(value).toFixed(1)} visits`, "Empirical heuristic training lower bound"];
                         return [`${Number(value).toFixed(1)} visits`, "Point Forecast"];
@@ -443,32 +445,24 @@ export const ForecastPage: React.FC = () => {
                       labelFormatter={(label) => `Month: ${label}`}
                       contentStyle={{ backgroundColor: "#ffffff", borderColor: "#cbd5e1", borderRadius: "8px", fontSize: "12px" }}
                     />
-                    {/* Empirical bounds shaded area */}
+                    {/* Empirical bounds shaded band genuinely between lower and upper */}
                     <Area
                       type="monotone"
-                      dataKey="interval_upper"
+                      dataKey="interval_bounds"
                       stroke="#93c5fd"
-                      strokeDasharray="2 2"
-                      fill="#dbeafe"
-                      fillOpacity={0.4}
-                      name="interval_upper"
+                      strokeDasharray="3 3"
+                      strokeWidth={1}
+                      fill="#3b82f6"
+                      fillOpacity={0.15}
+                      name="interval_bounds"
                     />
-                    <Area
-                      type="monotone"
-                      dataKey="interval_lower"
-                      stroke="#93c5fd"
-                      strokeDasharray="2 2"
-                      fill="#ffffff"
-                      fillOpacity={1.0}
-                      name="interval_lower"
-                    />
-                    {/* Primary point forecast line */}
+                    {/* Primary point forecast line visually distinct from bounds */}
                     <Line
                       type="monotone"
                       dataKey="predicted_visits"
-                      stroke="#2563eb"
+                      stroke="#1d4ed8"
                       strokeWidth={2.5}
-                      dot={{ r: 4, fill: "#2563eb" }}
+                      dot={{ r: 4, fill: "#1d4ed8" }}
                       activeDot={{ r: 6 }}
                       name="predicted_visits"
                     />
@@ -504,7 +498,7 @@ export const ForecastPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Accessible Numerical Forecast Table */}
+          {/* Accessible Numerical Forecast Table (uses the exact same API response data) */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden" data-testid="forecast-table-container">
             <div className="p-4 sm:p-5 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
@@ -516,7 +510,7 @@ export const ForecastPage: React.FC = () => {
                 </p>
               </div>
               <span className="text-xs bg-slate-100 text-slate-600 px-2.5 py-1 rounded-md font-medium border border-slate-200 self-start sm:self-auto">
-                {rawForecasts.length} Total Monthly Projections
+                {activeForecasts.length} Total Monthly Projections
               </span>
             </div>
 
@@ -535,7 +529,7 @@ export const ForecastPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {rawForecasts.map((row, idx) => (
+                  {activeForecasts.map((row, idx) => (
                     <tr
                       key={`${row.period_index}-${row.service}`}
                       className={`hover:bg-slate-50/80 transition-colors ${
@@ -583,7 +577,7 @@ export const ForecastPage: React.FC = () => {
 
             <div className="p-3 bg-slate-50 border-t border-slate-200 text-[11px] text-slate-500 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
               <span>
-                * Bounds represent Empirical heuristic training bounds calculated from pre-holdout training residuals (n=144 per specialty).
+                * Bounds represent empirical heuristic training bounds calculated from in-sample training residuals (n=144 per specialty).
               </span>
               <span>
                 Generated at: {forecastData?.generated_at ? new Date(forecastData.generated_at).toLocaleString() : "N/A"}
