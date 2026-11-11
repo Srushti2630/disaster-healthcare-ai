@@ -24,4 +24,18 @@ describe("ProvenanceBadge Component", () => {
     expect(badge).toBeInTheDocument();
     expect(badge.className).toContain("bg-amber-100");
   });
+
+  it("renders SYNTHETIC tag with purple styling", () => {
+    render(<ProvenanceBadge tag="SYNTHETIC" />);
+    const badge = screen.getByText("SYNTHETIC");
+    expect(badge).toBeInTheDocument();
+    expect(badge.className).toContain("bg-purple-100");
+  });
+
+  it("renders USER-PROVIDED tag with indigo styling", () => {
+    render(<ProvenanceBadge tag="USER-PROVIDED" />);
+    const badge = screen.getByText("USER-PROVIDED");
+    expect(badge).toBeInTheDocument();
+    expect(badge.className).toContain("bg-indigo-100");
+  });
 });

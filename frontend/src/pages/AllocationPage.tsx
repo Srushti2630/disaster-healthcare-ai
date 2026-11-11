@@ -82,7 +82,10 @@ export const AllocationPage: React.FC = () => {
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
         <Cpu className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" />
         <div className="text-xs text-blue-900 space-y-1">
-          <p className="font-semibold">Logistics Evaluation Score: Cost Index</p>
+          <div className="flex items-center gap-2">
+            <span className="font-semibold">Logistics Evaluation Score: Cost Index</span>
+            <ProvenanceBadge tag="ASSUMED" />
+          </div>
           <p>
             Transport cost is measured as an abstract logistics score:{" "}
             <code className="bg-blue-100 px-1 py-0.5 rounded font-mono">

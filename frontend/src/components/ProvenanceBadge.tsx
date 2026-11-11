@@ -25,6 +25,12 @@ export const ProvenanceBadge: React.FC<ProvenanceBadgeProps> = ({
   } else if (normTag.includes("ASSUMED")) {
     colorClasses = "bg-amber-100 text-amber-800 border-amber-300";
     description = "ASSUMED: Epidemiological consumption standards (WHO IEHK 2017 / Sphere) or road circuity (1.3x).";
+  } else if (normTag.includes("SYNTHETIC")) {
+    colorClasses = "bg-purple-100 text-purple-800 border-purple-300";
+    description = "SYNTHETIC: Stochastically generated Monte-Carlo realizations or test fixtures.";
+  } else if (normTag.includes("USER")) {
+    colorClasses = "bg-indigo-100 text-indigo-800 border-indigo-300";
+    description = "USER-PROVIDED: Officer-entered custom inventory adjustments.";
   }
 
   return (
