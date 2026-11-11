@@ -17,9 +17,37 @@ def configure_sqlite_engine(target_engine):
         cursor.execute("PRAGMA foreign_keys = ON")
         cursor.close()
 
+def ensure_sqlite_directory(db_url: str):
+    """Ensure parent directory exists for SQLite database and seed from existing root database if present."""
+    if not db_url.startswith("sqlite"):
+        return
+    raw_path = db_url.replace("sqlite:///", "", 1)
+    if not raw_path or raw_path == ":memory:":
+        return
+    abs_path = os.path.abspath(raw_path)
+    parent_dir = os.path.dirname(abs_path)
+    if parent_dir and not os.path.exists(parent_dir):
+        os.makedirs(parent_dir, exist_ok=True)
+    # If target database file does not exist, check for existing database to preserve data
+    if not os.path.exists(abs_path):
+        candidates = [
+            os.path.join(os.getcwd(), "disaster_healthcare.db"),
+            "/app/disaster_healthcare.db",
+        ]
+        for candidate in candidates:
+            if os.path.isfile(candidate) and os.path.abspath(candidate) != abs_path:
+                try:
+                    import shutil
+                    logger.info("Preserving existing database: seeding %s from %s", abs_path, candidate)
+                    shutil.copy2(candidate, abs_path)
+                    break
+                except Exception as exc:
+                    logger.warning("Could not seed database from %s: %s", candidate, exc)
+
 # SQLite connection args for multi-threaded FastAPI handlers
 connect_args = {}
 if settings.DATABASE_URL.startswith("sqlite"):
+    ensure_sqlite_directory(settings.DATABASE_URL)
     connect_args = {"check_same_thread": False, "timeout": 15.0}
 
 engine = create_engine(

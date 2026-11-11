@@ -10,7 +10,7 @@ services:
       - API_HOST=0.0.0.0
       - API_PORT=8000
       - CORS_ORIGINS=["http://localhost:3000","http://localhost:5173","http://localhost:80","http://localhost"]
-      - DATABASE_URL=sqlite:///./disaster_healthcare.db
+      - DATABASE_URL=sqlite:////app/db/disaster_healthcare.db
       - JWT_SECRET_KEY=dev-secret-key-change-in-production-disaster-ai-2025
       - JWT_ALGORITHM=HS256
       - ACCESS_TOKEN_EXPIRE_MINUTES=60
@@ -18,7 +18,7 @@ services:
       - ./data:/app/data:ro
       - ./models:/app/models:ro
       - ./reports:/app/reports:ro
-      - ./disaster_healthcare.db:/app/disaster_healthcare.db
+      - sqlite_data:/app/db
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/ready"]
@@ -45,3 +45,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+
+volumes:
+  sqlite_data:
+    name: disaster-healthcare-sqlite-data
