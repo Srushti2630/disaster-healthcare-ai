@@ -196,6 +196,47 @@ export interface AllocationResponse {
   transfers: TransferRow[];
   constraint_checks: ConstraintCheck;
   method_comparison: MethodComparisonSummary[];
+  allocation_id?: string;
+  simulation_id?: string | null;
+  plan_hash?: string;
+  status?: string;
+}
+
+export interface AllocationCreator {
+  id: number;
+  email: string;
+  role: string;
+}
+
+export interface PendingAllocationSummary {
+  allocation_id: string;
+  id: string;
+  simulation_id?: string | null;
+  plan_hash: string;
+  status: string;
+  cost_index?: number | null;
+  unmet_demand_after?: number | null;
+  transfers_count: number;
+  total_transferred_units: number;
+  created_at: string;
+  updated_at: string;
+  creator?: AllocationCreator | null;
+}
+
+export interface AllocationDetailResponse {
+  allocation_id: string;
+  id: string;
+  simulation_id?: string | null;
+  plan_hash: string;
+  status: string;
+  cost_index?: number | null;
+  unmet_demand_after?: number | null;
+  transfers_count: number;
+  total_transferred_units: number;
+  created_at: string;
+  updated_at: string;
+  creator?: AllocationCreator | null;
+  shipments: TransferRow[];
 }
 
 export interface User {
@@ -215,6 +256,7 @@ export interface AuditEvent {
   id: number;
   user_id: number;
   simulation_id: string | null;
+  allocation_id?: string | null;
   action: "APPROVE" | "REJECT";
   reason_code: string;
   plan_hash: string;

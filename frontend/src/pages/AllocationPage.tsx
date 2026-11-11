@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useLocation, Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { ProvenanceBadge } from "../components/ProvenanceBadge";
@@ -18,9 +19,15 @@ import {
 } from "recharts";
 
 export const AllocationPage: React.FC = () => {
-  const [epicentre, setEpicentre] = useState("Pune");
+  const location = useLocation();
+  const navigate = useNavigate();
+  const simulationId = location.state?.simulation_id as string | undefined;
+  const initialEpicentre = (location.state?.epicentre as string) || "Pune";
+  const initialPlanningLevel = (location.state?.planning_level as "P50" | "P75" | "P90") || "P50";
+
+  const [epicentre, setEpicentre] = useState(initialEpicentre);
   const [safetyReserveRatio, setSafetyReserveRatio] = useState(0.60);
-  const [planningLevel, setPlanningLevel] = useState<"P50" | "P75" | "P90">("P50");
+  const [planningLevel, setPlanningLevel] = useState<"P50" | "P75" | "P90">(initialPlanningLevel);
   const [stratumView, setStratumView] = useState<"overall" | "restricted">("overall");
   const [allocationData, setAllocationData] = useState<AllocationResponse | null>(null);
 
@@ -39,10 +46,14 @@ export const AllocationPage: React.FC = () => {
 
   const handleRunOptimizer = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!simulationId) {
+      return;
+    }
     allocateMutation.mutate({
+      simulation_id: simulationId,
       epicentre,
-      hazard: "Flood",
-      severity: 1.0,
+      hazard: location.state?.hazard || "Flood",
+      severity: location.state?.severity || 1.0,
       planning_level: planningLevel,
       safety_reserve_ratio: Number(safetyReserveRatio),
     });
@@ -82,6 +93,41 @@ export const AllocationPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Simulation Context Validation */}
+      {!simulationId ? (
+        <div className="bg-amber-50 border border-amber-300 rounded-2xl p-6 text-center space-y-3">
+          <ShieldAlert className="w-8 h-8 text-amber-600 mx-auto" />
+          <h3 className="text-base font-bold text-amber-900">
+            No Active Disaster Simulation Context
+          </h3>
+          <p className="text-xs text-amber-800 max-w-xl mx-auto leading-relaxed">
+            Resource allocation optimization must be linked to an active, verified disaster scenario simulation for auditability and governance review. Plans generated without simulation linkage will be marked as unlinked legacy and cannot be approved by coordinators.
+          </p>
+          <div className="pt-2">
+            <Link
+              to="/simulator"
+              className="inline-flex items-center px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg text-xs shadow-sm transition-colors"
+            >
+              Go to Scenario Simulator
+              <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+            </Link>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+            <span className="font-semibold text-blue-900">Active Simulation Linked:</span>
+            <span className="font-mono bg-blue-100 text-blue-800 px-2 py-0.5 rounded border border-blue-200 select-all">
+              {simulationId}
+            </span>
+          </div>
+          <span className="text-blue-700 font-medium">
+            MIP solution will be linked to simulation record for human governance review
+          </span>
+        </div>
+      )}
+
       {/* Solver Controls Form */}
       <form
         onSubmit={handleRunOptimizer}
@@ -94,7 +140,8 @@ export const AllocationPage: React.FC = () => {
           <select
             value={epicentre}
             onChange={(e) => setEpicentre(e.target.value)}
-            className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-blue-500"
+            disabled={!simulationId}
+            className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
           >
             <option value="Pune">Pune</option>
             <option value="Kolhapur">Kolhapur</option>
@@ -112,7 +159,8 @@ export const AllocationPage: React.FC = () => {
           <select
             value={planningLevel}
             onChange={(e) => setPlanningLevel(e.target.value as any)}
-            className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-blue-500"
+            disabled={!simulationId}
+            className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
           >
             <option value="P50">P50 (Median Demand)</option>
             <option value="P75">P75 (Buffer Demand)</option>
@@ -129,19 +177,24 @@ export const AllocationPage: React.FC = () => {
             min="0.30"
             max="0.90"
             step="0.05"
+            disabled={!simulationId}
             value={safetyReserveRatio}
             onChange={(e) => setSafetyReserveRatio(Number(e.target.value))}
-            className="w-full accent-blue-600 cursor-pointer"
+            className="w-full accent-blue-600 cursor-pointer disabled:opacity-50"
           />
         </div>
 
         <button
           type="submit"
-          disabled={allocateMutation.isPending}
+          disabled={!simulationId || allocateMutation.isPending}
           className="inline-flex items-center px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-xs shadow-sm transition-colors disabled:opacity-50"
         >
           <GitBranch className="w-4 h-4 mr-2" />
-          {allocateMutation.isPending ? "Solving MIP via SCIP..." : "Solve SCIP Optimal Allocation"}
+          {!simulationId
+            ? "Simulation Required"
+            : allocateMutation.isPending
+            ? "Solving MIP via SCIP..."
+            : "Solve SCIP Optimal Allocation"}
         </button>
       </form>
 
@@ -156,6 +209,41 @@ export const AllocationPage: React.FC = () => {
       {/* Allocation Output */}
       {allocationData && (
         <div className="space-y-8">
+          {/* Governance Review Submission Status Banner */}
+          {allocationData.status === "PENDING_REVIEW" && (
+            <div className="bg-emerald-50 border border-emerald-300 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                  <h3 className="text-sm font-bold text-emerald-950">
+                    Allocation Plan Submitted for Review
+                  </h3>
+                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                    PENDING_REVIEW
+                  </span>
+                </div>
+                <p className="text-xs text-emerald-800">
+                  Allocation ID:{" "}
+                  <span className="font-mono font-semibold select-all">
+                    {allocationData.allocation_id}
+                  </span>
+                  {allocationData.plan_hash && (
+                    <span className="ml-3 font-mono text-emerald-700 select-all">
+                      Hash: {allocationData.plan_hash.slice(0, 16)}...
+                    </span>
+                  )}
+                </p>
+              </div>
+              <Link
+                to="/governance"
+                className="inline-flex items-center px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-semibold rounded-lg text-xs shadow-sm transition-colors shrink-0"
+              >
+                Proceed to Governance
+                <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+              </Link>
+            </div>
+          )}
+
           {/* Metrics Overview Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
@@ -406,17 +494,17 @@ export const AllocationPage: React.FC = () => {
                         : "—"}
                     </td>
                     <td className="py-2.5 px-3 text-slate-700 font-mono">
-                      {(b.cost_index || b.cost_index_mean).toLocaleString()}
+                      {Math.round(b.cost_index ?? b.cost_index_mean ?? 0).toLocaleString()}
                     </td>
                     <td className="py-2.5 px-3 text-slate-600">
-                      {(b.route_km || b.route_km_mean).toLocaleString()} km
+                      {Math.round(b.route_km ?? b.route_km_mean ?? 0).toLocaleString()} km
                     </td>
                     <td className="py-2.5 px-3 text-slate-800 font-bold">
-                      {((b.min_coverage || b.min_coverage_mean) * 100).toFixed(1)}%
+                      {(((b.min_coverage ?? b.min_coverage_mean ?? 0)) * 100).toFixed(1)}%
                     </td>
                     <td className="py-2.5 px-3">
                       <span className="text-emerald-700 font-bold">
-                        {b.violations ?? b.violations_mean}
+                        {b.violations ?? b.violations_mean ?? 0}
                       </span>
                     </td>
                   </tr>

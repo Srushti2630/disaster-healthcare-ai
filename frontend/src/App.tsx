@@ -11,6 +11,7 @@ import { GovernancePage } from "./pages/GovernancePage";
 import { LimitationsPage } from "./pages/LimitationsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ForecastPage } from "./pages/ForecastPage";
+import { ProtectedRoute } from "./components/ProtectedRoute";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -31,13 +32,13 @@ export const App: React.FC = () => {
             <Navbar />
             <main className="flex-1">
               <Routes>
-                <Route path="/" element={<OverviewPage />} />
-                <Route path="/simulator" element={<SimulatorPage />} />
-                <Route path="/forecast" element={<ForecastPage />} />
-                <Route path="/allocation" element={<AllocationPage />} />
-                <Route path="/backtest" element={<BacktestPage />} />
-                <Route path="/governance" element={<GovernancePage />} />
-                <Route path="/limitations" element={<LimitationsPage />} />
+                <Route path="/" element={<ProtectedRoute><OverviewPage /></ProtectedRoute>} />
+                <Route path="/simulator" element={<ProtectedRoute><SimulatorPage /></ProtectedRoute>} />
+                <Route path="/forecast" element={<ProtectedRoute><ForecastPage /></ProtectedRoute>} />
+                <Route path="/allocation" element={<ProtectedRoute><AllocationPage /></ProtectedRoute>} />
+                <Route path="/backtest" element={<ProtectedRoute><BacktestPage /></ProtectedRoute>} />
+                <Route path="/governance" element={<ProtectedRoute><GovernancePage /></ProtectedRoute>} />
+                <Route path="/limitations" element={<ProtectedRoute><LimitationsPage /></ProtectedRoute>} />
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>

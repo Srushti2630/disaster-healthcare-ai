@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { ProvenanceBadge } from "../components/ProvenanceBadge";
@@ -8,7 +9,7 @@ import { DistrictMap } from "../components/DistrictMap";
 import { SimulationResponse, DistrictMedicineDemand } from "../types";
 import { PredictionExplanationPanel } from "../components/PredictionExplanationPanel";
 import { StockEditingTable } from "../components/StockEditingTable";
-import { Play, Info, AlertTriangle, Filter } from "lucide-react";
+import { Play, Info, AlertTriangle, Filter, ArrowRight } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -29,6 +30,7 @@ const MAHARASHTRA_DISTRICT_NAMES = [
 ];
 
 export const SimulatorPage: React.FC = () => {
+  const navigate = useNavigate();
   const [epicentre, setEpicentre] = useState("Pune");
   const [hazard, setHazard] = useState("Flood");
   const [severity, setSeverity] = useState(1.0);
@@ -284,6 +286,32 @@ export const SimulatorPage: React.FC = () => {
                   <span className="ml-2 text-amber-300 font-semibold">(Capped at district population)</span>
                 )}
               </p>
+              <div className="flex flex-wrap items-center gap-3 mt-3">
+                <div className="flex items-center gap-1.5 text-xs text-slate-300">
+                  <span className="text-slate-400">Simulation ID:</span>
+                  <span className="font-mono bg-slate-800 text-blue-300 px-2 py-0.5 rounded border border-slate-700 select-all">
+                    {simulationResult.simulation_id}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigate("/allocation", {
+                      state: {
+                        simulation_id: simulationResult.simulation_id,
+                        epicentre: simulationResult.epicentre,
+                        hazard: simulationResult.hazard,
+                        severity: simulationResult.severity,
+                        planning_level: simulationResult.planning_level,
+                      },
+                    });
+                  }}
+                  className="inline-flex items-center px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-xs shadow-sm transition-colors"
+                >
+                  Proceed to Allocation
+                  <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+                </button>
+              </div>
             </div>
 
             <div className="flex items-center gap-3">

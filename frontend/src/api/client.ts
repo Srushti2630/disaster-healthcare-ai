@@ -9,6 +9,8 @@ import {
   UserStockResponse,
   SimulationResponse,
   AllocationResponse,
+  PendingAllocationSummary,
+  AllocationDetailResponse,
   TokenResponse,
   User,
   AuditEvent,
@@ -96,17 +98,25 @@ export const api = {
     }),
 
   allocate: (data: {
+    simulation_id?: string;
     epicentre?: string;
     hazard?: string;
     severity?: number;
     planning_level?: "P50" | "P75" | "P90";
     safety_reserve_ratio?: number;
     stock_adjustment_pct?: number;
+    custom_stocks?: Record<string, Record<string, number>>;
   }) =>
     request<AllocationResponse>("/api/allocate", {
       method: "POST",
       body: JSON.stringify(data),
     }),
+
+  getPendingAllocations: (limit: number = 50, offset: number = 0) =>
+    request<PendingAllocationSummary[]>(`/api/allocations/pending?limit=${limit}&offset=${offset}`),
+
+  getAllocationById: (allocationId: string) =>
+    request<AllocationDetailResponse>(`/api/allocations/${encodeURIComponent(allocationId)}`),
 
   // Stock Management (Officer Role)
   updateStock: (data: { stocks?: Record<string, Record<string, number>>; items?: Array<{ district: string; medicine: string; quantity: number }> }) =>
@@ -139,7 +149,8 @@ export const api = {
 
   // Audit Endpoints
   recordAuditDecision: (data: {
-    simulation_id?: string;
+    allocation_id?: string;
+    simulation_id?: string | null;
     action: "APPROVE" | "REJECT";
     reason_code: string;
     plan_hash: string;
