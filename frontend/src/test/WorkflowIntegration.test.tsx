@@ -376,6 +376,55 @@ describe("Phase 3D-2 End-to-End Workflow & Governance Integration", () => {
     });
   });
 
+  // 6b: Allocation safely renders when SCIP achieves 0 unmet demand without throwing TypeError
+  it("Requirement 6b: Allocation safely renders when SCIP achieves 0 unmet demand without throwing TypeError", async () => {
+    const zeroUnmetResult: AllocationResponse = {
+      ...mockAllocationResult,
+      unmet_demand_after: 0,
+      method_comparison: [
+        {
+          method: "OR-Tools SCIP",
+          unmet_demand: 0,
+          cost_index: 1263251.47,
+          unit_km: 84183.4,
+          route_km: 138.9,
+          min_coverage: 1.0,
+          violations: 0,
+        },
+      ],
+    };
+    vi.mocked(api.allocate).mockResolvedValue(zeroUnmetResult);
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter
+          initialEntries={[
+            {
+              pathname: "/allocation",
+              state: { simulation_id: "sim-xyz-789" },
+            },
+          ]}
+        >
+          <AuthProvider>
+            <AllocationPage />
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    const submitBtn = screen.getByRole("button", { name: /solve scip optimal allocation/i });
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("PENDING_REVIEW")).toBeInTheDocument();
+      expect(screen.getByText("OR-Tools SCIP")).toBeInTheDocument();
+    });
+  });
+
   // 7, 8, 9: Governance queue fetches pending items, handles empty, loading, error
   it("Requirement 7: Governance queue renders pending items from /api/allocations/pending", async () => {
     renderWithProviders(<GovernancePage />, "/governance");

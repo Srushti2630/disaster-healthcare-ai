@@ -61,9 +61,9 @@ export const AllocationPage: React.FC = () => {
 
   const chartData = (allocationData?.method_comparison || baselinesData?.results || []).map((m: any) => ({
     name: m.method,
-    unmet_demand: Math.round(m.unmet_demand || m.unmet_demand_mean),
-    cost_index: Math.round(m.cost_index || m.cost_index_mean),
-    min_coverage: ((m.min_coverage || m.min_coverage_mean) * 100).toFixed(1),
+    unmet_demand: Math.round(m.unmet_demand ?? m.unmet_demand_mean ?? 0),
+    cost_index: Math.round(m.cost_index ?? m.cost_index_mean ?? 0),
+    min_coverage: (((m.min_coverage ?? m.min_coverage_mean ?? 0)) * 100).toFixed(1),
   }));
 
   return (
@@ -259,21 +259,21 @@ export const AllocationPage: React.FC = () => {
               <span className="text-xs font-medium text-slate-500">Transferred Units</span>
               <div className="my-2">
                 <span className="text-xl font-bold text-slate-800">
-                  {allocationData.total_transferred_units.toLocaleString()}
+                  {(allocationData.total_transferred_units ?? 0).toLocaleString()}
                 </span>
               </div>
-              <p className="text-xs text-slate-500">Across {allocationData.transfers.length} inter-district routes</p>
+              <p className="text-xs text-slate-500">Across {allocationData.transfers?.length ?? 0} inter-district routes</p>
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
               <span className="text-xs font-medium text-slate-500">Demand Reduction</span>
               <div className="my-2">
                 <span className="text-xl font-bold text-blue-600">
-                  {allocationData.demand_reduction_pct.toFixed(1)}%
+                  {(allocationData.demand_reduction_pct ?? 0).toFixed(1)}%
                 </span>
               </div>
               <p className="text-xs text-slate-500">
-                Unmet: {allocationData.unmet_demand_after.toLocaleString()} vs {allocationData.unmet_demand_before.toLocaleString()}
+                Unmet: {(allocationData.unmet_demand_after ?? 0).toLocaleString()} vs {(allocationData.unmet_demand_before ?? 0).toLocaleString()}
               </p>
             </div>
 
@@ -281,7 +281,7 @@ export const AllocationPage: React.FC = () => {
               <span className="text-xs font-medium text-slate-500">Transport Cost Index</span>
               <div className="my-2">
                 <span className="text-xl font-bold text-slate-800">
-                  {allocationData.cost_index.toLocaleString()}
+                  {(allocationData.cost_index ?? 0).toLocaleString()}
                 </span>
               </div>
               <p className="text-xs text-slate-500">Logistics index (not currency)</p>
@@ -365,9 +365,9 @@ export const AllocationPage: React.FC = () => {
                         <span className="text-blue-600">{t.dest_region}</span>
                       </td>
                       <td className="py-2.5 px-3 text-slate-600">{t.medicine.replace("_", " ")}</td>
-                      <td className="py-2.5 px-3 font-bold text-slate-800">{t.quantity.toLocaleString()}</td>
+                      <td className="py-2.5 px-3 font-bold text-slate-800">{(t.quantity ?? 0).toLocaleString()}</td>
                       <td className="py-2.5 px-3 text-slate-500">{t.distance_km} km</td>
-                      <td className="py-2.5 px-3 text-slate-500 font-mono">{t.cost_index.toLocaleString()}</td>
+                      <td className="py-2.5 px-3 text-slate-500 font-mono">{(t.cost_index ?? 0).toLocaleString()}</td>
                       <td className="py-2.5 px-3">
                         <span
                           className={`inline-flex px-2 py-0.5 rounded text-[10px] font-bold ${
@@ -481,7 +481,7 @@ export const AllocationPage: React.FC = () => {
                   <tr key={idx} className={isSCIP ? "bg-blue-50/70 font-semibold" : "hover:bg-slate-50"}>
                     <td className="py-2.5 px-3 text-slate-900">{b.method}</td>
                     <td className="py-2.5 px-3 text-slate-800">
-                      {(b.unmet_demand || b.unmet_demand_mean).toLocaleString()}
+                      {(b.unmet_demand ?? b.unmet_demand_mean ?? 0).toLocaleString()}
                     </td>
                     <td className="py-2.5 px-3 font-semibold text-slate-900">
                       {b.unmet_pct_mean !== undefined && b.unmet_pct_mean !== null

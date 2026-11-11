@@ -54,7 +54,11 @@ async def register_user(
         from api.auth import decode_access_token
         payload = decode_access_token(token)
         req_user_id = payload.get("sub")
-        admin_user = db.query(User).filter(User.id == int(req_user_id)).first() if req_user_id else None
+        try:
+            req_u_id = int(req_user_id) if req_user_id else None
+        except (ValueError, TypeError):
+            req_u_id = None
+        admin_user = db.query(User).filter(User.id == req_u_id).first() if req_u_id else None
         if not admin_user or admin_user.role != UserRole.ADMIN.value:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

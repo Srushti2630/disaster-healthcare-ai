@@ -309,3 +309,22 @@ def test_stock_used_in_simulate(client):
     del_res = client.delete("/api/stock")
     assert del_res.status_code == 200
     assert del_res.json()["total_records"] == 0
+
+def test_non_json_body_returns_422_not_500(client):
+    """Verify that non-JSON/binary bodies return HTTP 422 with jsonable details rather than escalating to HTTP 500."""
+    res = client.post("/api/auth/login", content=b"raw_binary_content_not_json", headers={"Content-Type": "application/json"})
+    assert res.status_code == 422
+    data = res.json()
+    assert data["error"] is True
+    assert data["status_code"] == 422
+    assert "Input validation error" in data["message"]
+    assert "details" in data
+
+def test_token_with_non_integer_sub_returns_401(client):
+    """Verify that an otherwise valid JWT with a non-integer sub safely returns 401 instead of unhandled 500."""
+    import jwt
+    from api.config import settings
+    token = jwt.encode({"sub": "not_an_integer", "exp": 9999999999}, settings.get_jwt_secret, algorithm="HS256")
+    res = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert res.status_code == 401
+    assert "Invalid user identification" in res.json().get("message", res.json().get("detail", ""))

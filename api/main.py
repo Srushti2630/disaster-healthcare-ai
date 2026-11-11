@@ -1,6 +1,7 @@
 """FastAPI application factory and entry point."""
 import logging
 from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -70,7 +71,7 @@ def create_app() -> FastAPI:
                 "error": True,
                 "status_code": 422,
                 "message": "Input validation error",
-                "details": exc.errors(),
+                "details": jsonable_encoder(exc.errors()),
                 "request_id": req_id
             }
         )
