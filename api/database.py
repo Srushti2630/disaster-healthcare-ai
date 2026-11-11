@@ -1,5 +1,8 @@
 """SQLAlchemy 2 database engine and session configuration."""
 import os
+import sys
+import errno
+import ctypes
 import logging
 import uuid
 import sqlite3
@@ -40,13 +43,99 @@ def check_sqlite_integrity(db_path: str) -> bool:
         return False
 
 def cleanup_temp_db_files(base_tmp_path: str):
-    """Clean up temporary database file and any SQLite WAL/SHM companion files."""
+    """Clean up this process's own temporary database file and any SQLite WAL/SHM companion files."""
     for path in [base_tmp_path, f"{base_tmp_path}-wal", f"{base_tmp_path}-shm"]:
         if os.path.exists(path):
             try:
                 os.unlink(path)
             except OSError:
                 pass
+
+def atomic_publish_no_overwrite(src: str, dst: str) -> bool:
+    """
+    Atomically publish temporary database file `src` to final path `dst` without overwriting an existing destination.
+    Uses os.link() as the primary atomic primitive.
+    If hard-links are unsupported by the filesystem, falls back to platform-native atomic no-replace primitives:
+      - Darwin (macOS): renamex_np(..., RENAME_EXCL)
+      - Linux: renameat2(..., RENAME_NOREPLACE)
+      - Windows: MoveFileExW(..., 0)
+    If no genuinely atomic no-replace primitive is available, fails closed with RuntimeError.
+    Never uses check-then-act os.rename() or os.replace().
+    Returns True if this process published the destination.
+    Returns False if another process published the destination first (FileExistsError/EEXIST).
+    """
+    # 1. Primary publication primitive: os.link()
+    try:
+        os.link(src, dst)
+        return True
+    except FileExistsError:
+        return False
+    except OSError as link_err:
+        unsupported_errnos = {
+            errno.EPERM,
+            errno.ENOSYS,
+            getattr(errno, "EOPNOTSUPP", None),
+            getattr(errno, "ENOTSUP", None),
+            errno.EXDEV,
+            errno.EMLINK,
+        }
+        if link_err.errno not in {e for e in unsupported_errnos if e is not None}:
+            raise RuntimeError(f"Unexpected filesystem link error publishing to '{dst}': {link_err}") from link_err
+
+    # 2. Platform-native atomic no-replace fallbacks when hard-links are unsupported
+    # 2a. Darwin (macOS): renamex_np with RENAME_EXCL (0x00000004)
+    if sys.platform == "darwin":
+        try:
+            libc = ctypes.CDLL(None, use_errno=True)
+            if hasattr(libc, "renamex_np"):
+                ret = libc.renamex_np(src.encode("utf-8"), dst.encode("utf-8"), 4)
+                if ret == 0:
+                    return True
+                err = ctypes.get_errno()
+                if err == errno.EEXIST:
+                    return False
+                raise OSError(err, os.strerror(err))
+        except Exception as e:
+            if isinstance(e, OSError) and e.errno == errno.EEXIST:
+                return False
+            raise RuntimeError(f"Platform atomic no-replace publication failed on Darwin: {e}") from e
+
+    # 2b. Linux: renameat2 with RENAME_NOREPLACE (1)
+    elif sys.platform.startswith("linux"):
+        try:
+            libc = ctypes.CDLL(None, use_errno=True)
+            if hasattr(libc, "renameat2"):
+                ret = libc.renameat2(-100, src.encode("utf-8"), -100, dst.encode("utf-8"), 1)
+                if ret == 0:
+                    return True
+                err = ctypes.get_errno()
+                if err == errno.EEXIST:
+                    return False
+                raise OSError(err, os.strerror(err))
+        except Exception as e:
+            if isinstance(e, OSError) and e.errno == errno.EEXIST:
+                return False
+            raise RuntimeError(f"Platform atomic no-replace publication failed on Linux: {e}") from e
+
+    # 2c. Windows (NT)
+    elif os.name == "nt":
+        try:
+            kernel32 = ctypes.windll.kernel32
+            ret = kernel32.MoveFileExW(ctypes.c_wchar_p(src), ctypes.c_wchar_p(dst), ctypes.c_uint32(0))
+            if ret != 0:
+                return True
+            err = kernel32.GetLastError()
+            if err in (80, 183):
+                return False
+            raise OSError(err, f"MoveFileExW failed with Windows error code {err}")
+        except Exception as e:
+            raise RuntimeError(f"Platform atomic no-replace publication failed on Windows: {e}") from e
+
+    # 3. If no safe no-replace primitive is available, fail closed.
+    raise RuntimeError(
+        f"Atomic no-overwrite publication of '{dst}' is not supported on this platform/filesystem. "
+        f"Refusing unsafe publication."
+    )
 
 def ensure_sqlite_directory(db_url: str, candidate_sources: Optional[List[str]] = None):
     """
@@ -73,19 +162,9 @@ def ensure_sqlite_directory(db_url: str, candidate_sources: Optional[List[str]] 
             )
         return
 
-    # 2. Clean up any stale abandoned migration temporary files from previous interrupted startups
-    try:
-        for fname in os.listdir(parent_dir):
-            if fname.startswith(".migrating_"):
-                stale_file = os.path.join(parent_dir, fname)
-                try:
-                    os.unlink(stale_file)
-                except OSError:
-                    pass
-    except OSError:
-        pass
-
-    # 3. Locate source candidate database for initial volume seeding
+    # 2. Locate source candidate database for initial volume seeding
+    # NOTE: Startup cleanup of other processes' temporary files is strictly omitted to avoid deleting
+    # an active backup currently being written by a concurrent process.
     if candidate_sources is None:
         candidate_sources = [
             os.path.join(os.getcwd(), "disaster_healthcare.db"),
@@ -102,7 +181,7 @@ def ensure_sqlite_directory(db_url: str, candidate_sources: Optional[List[str]] 
         # No source database candidate found; allow standard fresh schema initialization
         return
 
-    # 4. Verify candidate source database integrity before migrating
+    # 3. Verify candidate source database integrity before migrating
     if not check_sqlite_integrity(source_candidate):
         logger.error("Source candidate database '%s' is corrupt or incomplete.", source_candidate)
         raise RuntimeError(
@@ -110,7 +189,7 @@ def ensure_sqlite_directory(db_url: str, candidate_sources: Optional[List[str]] 
             f"Refusing to migrate corrupt source database."
         )
 
-    # 5. Perform WAL-safe consistent backup using sqlite3.Connection.backup()
+    # 4. Perform WAL-safe consistent backup using sqlite3.Connection.backup()
     tmp_filename = f".migrating_{uuid.uuid4().hex}_{os.path.basename(abs_path)}.tmp"
     dest_tmp_path = os.path.join(parent_dir, tmp_filename)
     try:
@@ -128,26 +207,18 @@ def ensure_sqlite_directory(db_url: str, candidate_sources: Optional[List[str]] 
         finally:
             src_conn.close()
 
-        # 6. Verify integrity of completed temporary backup file
+        # 5. Verify integrity of completed temporary backup file
         if not check_sqlite_integrity(dest_tmp_path):
             raise RuntimeError(f"Integrity check failed on migrated temporary database '{dest_tmp_path}'.")
 
-        # 7. Safe atomic publication without overwriting an existing destination
-        try:
-            # os.link is atomic and raises FileExistsError if abs_path already exists
-            os.link(dest_tmp_path, abs_path)
+        # 6. Safe atomic publication without overwriting an existing destination
+        published = atomic_publish_no_overwrite(dest_tmp_path, abs_path)
+        if published:
             logger.info("Successfully published migrated database at %s", abs_path)
-        except FileExistsError:
+        else:
             logger.info("Destination %s was published concurrently by another process.", abs_path)
-        except OSError:
-            # Fallback for filesystems that do not support hardlinks
-            if os.path.exists(abs_path):
-                logger.info("Destination %s already exists.", abs_path)
-            else:
-                os.rename(dest_tmp_path, abs_path)
-                logger.info("Successfully published migrated database at %s via rename fallback", abs_path)
 
-        # 8. Final verification of published destination
+        # 7. Final verification of published destination
         if not check_sqlite_integrity(abs_path):
             raise RuntimeError(f"Published destination database '{abs_path}' failed integrity verification.")
 

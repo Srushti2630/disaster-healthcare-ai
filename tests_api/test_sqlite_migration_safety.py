@@ -343,28 +343,110 @@ def test_12_permission_or_unreadable_source_fails_closed(tmp_path, monkeypatch):
 
     assert not dest_db.exists()
 
-def test_13_recovery_from_abandoned_stale_temp_files(tmp_path):
-    """Verify that stale .migrating_*.tmp files from crashed previous runs are swept without deleting destination."""
-    src_db = tmp_path / "src_stale.db"
-    dest_dir = tmp_path / "dest_stale_dir"
+def test_13_startup_does_not_delete_another_process_active_backup(tmp_path):
+    """
+    Verify that startup migration NEVER sweeps or deletes another process's active temporary backup file.
+    Leaving orphaned temporary files is preferred over deleting an active backup written by a concurrent process.
+    """
+    src_db = tmp_path / "src_concurrent.db"
+    dest_dir = tmp_path / "dest_active_dir"
     dest_dir.mkdir(parents=True, exist_ok=True)
-    dest_db = dest_dir / "target_stale.db"
+    dest_db = dest_dir / "target_active.db"
 
-    # Plant an abandoned stale file
-    stale_file = dest_dir / ".migrating_dead1234beef_target_stale.db.tmp"
-    stale_file.write_bytes(b"abandoned junk")
+    # Pre-create another process's active temporary backup and companion files
+    other_proc_tmp = dest_dir / ".migrating_otherprocess123_target_active.db.tmp"
+    other_proc_tmp.write_bytes(b"active backup data written by concurrent process")
+    other_proc_wal = dest_dir / ".migrating_otherprocess123_target_active.db.tmp-wal"
+    other_proc_wal.write_bytes(b"active wal frames")
 
     s_conn = sqlite3.connect(str(src_db))
     s_conn.execute("CREATE TABLE t (msg TEXT)")
-    s_conn.execute("INSERT INTO t VALUES ('recovered')")
+    s_conn.execute("INSERT INTO t VALUES ('migrated_successfully')")
     s_conn.commit()
     s_conn.close()
 
     ensure_sqlite_directory(f"sqlite:///{dest_db}", candidate_sources=[str(src_db)])
 
+    # Destination was successfully published
     assert dest_db.exists()
-    assert not stale_file.exists(), "Stale migration temporary file must be purged"
     chk_conn = sqlite3.connect(str(dest_db))
     rows = chk_conn.execute("SELECT msg FROM t").fetchall()
     chk_conn.close()
-    assert rows == [("recovered",)]
+    assert rows == [("migrated_successfully",)]
+
+    # CRITICAL: Another process's active temporary backup and WAL must NOT have been deleted
+    assert other_proc_tmp.exists(), "Another process's active temporary backup must NOT be removed"
+    assert other_proc_tmp.read_bytes() == b"active backup data written by concurrent process"
+    assert other_proc_wal.exists(), "Another process's companion WAL must NOT be removed"
+
+def test_14_unsupported_hardlink_fallback_does_not_overwrite_concurrent_destination(tmp_path, monkeypatch):
+    """
+    Simulate a filesystem where os.link() is unsupported (raises EOPNOTSUPP).
+    The fallback to a platform-native atomic no-replace primitive must run.
+    If the destination was published concurrently, it must detect the collision and NOT overwrite it.
+    """
+    import errno
+
+    src_db = tmp_path / "src_fallback.db"
+    dest_dir = tmp_path / "dest_fallback_dir"
+    dest_db = dest_dir / "target_fallback.db"
+
+    s_conn = sqlite3.connect(str(src_db))
+    s_conn.execute("CREATE TABLE t (val TEXT)")
+    s_conn.execute("INSERT INTO t VALUES ('from_source')")
+    s_conn.commit()
+    s_conn.close()
+
+    # Pre-create the destination as if another process just published it
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    c_conn = sqlite3.connect(str(dest_db))
+    c_conn.execute("CREATE TABLE t (val TEXT)")
+    c_conn.execute("INSERT INTO t VALUES ('concurrent_destination_content')")
+    c_conn.commit()
+    c_conn.close()
+
+    # Mock os.link to simulate unsupported hardlinks
+    def mock_link(src, dst):
+        raise OSError(errno.EOPNOTSUPP, "Operation not supported on socket / filesystem")
+
+    monkeypatch.setattr(os, "link", mock_link)
+
+    # Call migration
+    ensure_sqlite_directory(f"sqlite:///{dest_db}", candidate_sources=[str(src_db)])
+
+    # Verify destination was NOT overwritten
+    chk_conn = sqlite3.connect(str(dest_db))
+    rows = chk_conn.execute("SELECT val FROM t").fetchall()
+    chk_conn.close()
+    assert rows == [("concurrent_destination_content",)], "Concurrent destination must NOT be overwritten in fallback"
+
+def test_15_unsupported_atomic_publication_fails_closed(tmp_path, monkeypatch):
+    """
+    Simulate an environment where hard-links are unsupported and no platform-native
+    atomic no-replace primitive is available. Verify that migration fails closed with
+    RuntimeError rather than performing an unsafe non-atomic rename.
+    """
+    import errno
+    import sys
+
+    src_db = tmp_path / "src_unsupported.db"
+    dest_dir = tmp_path / "dest_unsupported_dir"
+    dest_db = dest_dir / "target_unsupported.db"
+
+    s_conn = sqlite3.connect(str(src_db))
+    s_conn.execute("CREATE TABLE t (x INT)")
+    s_conn.commit()
+    s_conn.close()
+
+    # Mock os.link to fail with EOPNOTSUPP
+    def mock_link(src, dst):
+        raise OSError(errno.EOPNOTSUPP, "Hard links not supported")
+
+    monkeypatch.setattr(os, "link", mock_link)
+    # Simulate an unsupported platform where no atomic primitive exists
+    monkeypatch.setattr(sys, "platform", "unsupported_os_platform")
+
+    with pytest.raises(RuntimeError, match="Atomic no-overwrite publication of .* is not supported"):
+        ensure_sqlite_directory(f"sqlite:///{dest_db}", candidate_sources=[str(src_db)])
+
+    assert not dest_db.exists(), "Destination must not be created when safe publication is impossible"
