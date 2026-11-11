@@ -7,7 +7,6 @@ import {
   GitBranch,
   History,
   ShieldCheck,
-  FileText,
   TrendingUp,
   LogIn,
   LogOut,
@@ -25,7 +24,6 @@ export const Navbar: React.FC = () => {
     { name: "Allocation Plan", path: "/allocation", icon: <GitBranch className="w-4 h-4 mr-1.5" /> },
     { name: "Backtest", path: "/backtest", icon: <History className="w-4 h-4 mr-1.5" /> },
     { name: "Governance", path: "/governance", icon: <ShieldCheck className="w-4 h-4 mr-1.5" /> },
-    { name: "Limitations", path: "/limitations", icon: <FileText className="w-4 h-4 mr-1.5" /> },
   ];
 
   return (

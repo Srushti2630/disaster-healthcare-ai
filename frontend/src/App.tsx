@@ -8,7 +8,6 @@ import { SimulatorPage } from "./pages/SimulatorPage";
 import { AllocationPage } from "./pages/AllocationPage";
 import { BacktestPage } from "./pages/BacktestPage";
 import { GovernancePage } from "./pages/GovernancePage";
-import { LimitationsPage } from "./pages/LimitationsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ForecastPage } from "./pages/ForecastPage";
 import { ProtectedRoute } from "./components/ProtectedRoute";
@@ -38,7 +37,6 @@ export const App: React.FC = () => {
                 <Route path="/allocation" element={<ProtectedRoute><AllocationPage /></ProtectedRoute>} />
                 <Route path="/backtest" element={<ProtectedRoute><BacktestPage /></ProtectedRoute>} />
                 <Route path="/governance" element={<ProtectedRoute><GovernancePage /></ProtectedRoute>} />
-                <Route path="/limitations" element={<ProtectedRoute><LimitationsPage /></ProtectedRoute>} />
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
