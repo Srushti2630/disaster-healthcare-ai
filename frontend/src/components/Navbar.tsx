@@ -7,7 +7,6 @@ import {
   GitBranch,
   History,
   ShieldCheck,
-  TrendingUp,
   LogIn,
   LogOut,
   User as UserIcon,
@@ -20,7 +19,6 @@ export const Navbar: React.FC = () => {
   const navItems = [
     { name: "Overview", path: "/", icon: <Map className="w-4 h-4 mr-1.5" /> },
     { name: "Simulator", path: "/simulator", icon: <Activity className="w-4 h-4 mr-1.5" /> },
-    { name: "Clinical Forecast", path: "/forecast", icon: <TrendingUp className="w-4 h-4 mr-1.5" /> },
     { name: "Allocation Plan", path: "/allocation", icon: <GitBranch className="w-4 h-4 mr-1.5" /> },
     { name: "Backtest", path: "/backtest", icon: <History className="w-4 h-4 mr-1.5" /> },
     { name: "Governance", path: "/governance", icon: <ShieldCheck className="w-4 h-4 mr-1.5" /> },

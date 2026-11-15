@@ -9,7 +9,6 @@ import { AllocationPage } from "./pages/AllocationPage";
 import { BacktestPage } from "./pages/BacktestPage";
 import { GovernancePage } from "./pages/GovernancePage";
 import { LoginPage } from "./pages/LoginPage";
-import { ForecastPage } from "./pages/ForecastPage";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 
 const queryClient = new QueryClient({
@@ -33,7 +32,6 @@ export const App: React.FC = () => {
               <Routes>
                 <Route path="/" element={<ProtectedRoute><OverviewPage /></ProtectedRoute>} />
                 <Route path="/simulator" element={<ProtectedRoute><SimulatorPage /></ProtectedRoute>} />
-                <Route path="/forecast" element={<ProtectedRoute><ForecastPage /></ProtectedRoute>} />
                 <Route path="/allocation" element={<ProtectedRoute><AllocationPage /></ProtectedRoute>} />
                 <Route path="/backtest" element={<ProtectedRoute><BacktestPage /></ProtectedRoute>} />
                 <Route path="/governance" element={<ProtectedRoute><GovernancePage /></ProtectedRoute>} />
