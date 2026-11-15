@@ -69,6 +69,79 @@ export const LoginPage: React.FC = () => {
           </div>
         )}
 
+        {/* Pre-configured Demo Accounts */}
+        {!isRegister && (
+          <div className="mb-6 p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
+            <p className="text-xs font-semibold text-slate-700">Pre-Configured System Accounts (Click to Fill):</p>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail("admin@example.com");
+                  setPassword("Password123!");
+                  setError(null);
+                }}
+                className="px-2 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 transition-colors text-center shadow-xs"
+              >
+                <span className="block font-bold">Admin</span>
+                <span className="text-[10px] text-slate-500">Full Access</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail("officer@example.com");
+                  setPassword("Password123!");
+                  setError(null);
+                }}
+                className="px-2 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 transition-colors text-center shadow-xs"
+              >
+                <span className="block font-bold">Officer</span>
+                <span className="text-[10px] text-slate-500">Sim & Allocate</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail("viewer@example.com");
+                  setPassword("Password123!");
+                  setError(null);
+                }}
+                className="px-2 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 transition-colors text-center shadow-xs"
+              >
+                <span className="block font-bold">Viewer</span>
+                <span className="text-[10px] text-slate-500">Read-Only</span>
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-500 text-center pt-0.5">
+              Password for all accounts: <code className="bg-slate-200 px-1 py-0.5 rounded font-mono text-slate-800">Password123!</code>
+            </p>
+          </div>
+        )}
+
+        {isRegister && (
+          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-1.5">
+            <p className="font-semibold flex items-center gap-1.5">
+              <span>Security Policy Notice</span>
+            </p>
+            <p className="text-[11px] leading-relaxed text-amber-800">
+              Public self-registration is disabled by Role-Based Access Control (RBAC). Only logged-in Administrators can provision new accounts.
+            </p>
+            <p className="text-[11px] leading-relaxed text-amber-800">
+              To access the system, please{" "}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsRegister(false);
+                  setError(null);
+                }}
+                className="text-blue-700 font-bold underline"
+              >
+                Sign In
+              </button>{" "}
+              using one of the pre-configured accounts above.
+            </p>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
