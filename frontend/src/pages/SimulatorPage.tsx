@@ -9,7 +9,7 @@ import { DistrictMap } from "../components/DistrictMap";
 import { SimulationResponse, DistrictMedicineDemand } from "../types";
 import { PredictionExplanationPanel } from "../components/PredictionExplanationPanel";
 import { StockEditingTable } from "../components/StockEditingTable";
-import { Play, Info, AlertTriangle, Filter, ArrowRight } from "lucide-react";
+import { Play, AlertTriangle, Filter, ArrowRight } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -92,18 +92,6 @@ export const SimulatorPage: React.FC = () => {
         <p className="text-sm text-slate-500 mt-1">
           2,000-draw Monte-Carlo demand simulation coupling empirical impact distributions with WHO IEHK / Sphere standards.
         </p>
-      </div>
-
-      {/* Mandatory Honest Methodological Caveat */}
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
-        <Info className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
-        <div className="text-xs text-amber-800 space-y-1">
-          <p className="font-semibold">Honest Methodological Framing</p>
-          <p>
-            The disaster impact prediction model <strong>ranks events by relative severity; it underestimates very large ones</strong> (historical actual/predicted ratios reach up to 1024x in CRED EM-DAT).
-            Conformal prediction intervals span multiple orders of magnitude. Demand consumption rates are <ProvenanceBadge tag="ASSUMED" /> from WHO IEHK 2017 & Sphere Handbook standards. Simulated casualties are strictly capped at each district's real population across 2,000 Monte-Carlo stochastic draws.
-          </p>
-        </div>
       </div>
 
       {/* Shortage Probability & Risk Legend Card */}

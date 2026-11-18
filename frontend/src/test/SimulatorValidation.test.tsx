@@ -22,8 +22,8 @@ describe("SimulatorPage Component", () => {
     // Check title
     expect(screen.getByText("Stochastic What-If Scenario Simulator")).toBeInTheDocument();
 
-    // Check caveat text
-    expect(screen.getByText("Honest Methodological Framing")).toBeInTheDocument();
+    // Check risk classification legend
+    expect(screen.getByText("Monte-Carlo Shortage Risk Classification:")).toBeInTheDocument();
 
     // Check epicentre selection
     expect(screen.getByText("Epicentre District")).toBeInTheDocument();

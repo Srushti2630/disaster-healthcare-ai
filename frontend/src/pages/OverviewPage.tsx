@@ -6,7 +6,7 @@ import { DistrictMap } from "../components/DistrictMap";
 import { ProvenanceBadge } from "../components/ProvenanceBadge";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import { ErrorAlert } from "../components/ErrorAlert";
-import { Users, Building2, Bed, HeartPulse, Search, Info } from "lucide-react";
+import { Users, Building2, Bed, HeartPulse, Search } from "lucide-react";
 
 export const OverviewPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState("");
@@ -92,20 +92,6 @@ export const OverviewPage: React.FC = () => {
           tag="REAL"
           icon={<HeartPulse className="w-5 h-5" />}
         />
-      </div>
-
-      {/* Examiner Data Provenance & Methodology Note */}
-      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-2 text-xs">
-        <div className="flex items-center gap-2 text-slate-800 font-bold">
-          <Info className="w-4 h-4 text-blue-600" />
-          <span>Data Provenance & Empirical Grounding Architecture</span>
-        </div>
-        <p className="text-slate-600 leading-relaxed">
-          <strong>State Population & Facilities (REAL):</strong> Aggregated directly from official high-resolution WorldPop 2020 100m raster zonal statistics (131.9M total) and the verified National Health Portal directory (4,767 geocoded facilities).
-        </p>
-        <p className="text-slate-600 leading-relaxed">
-          <strong>Hospital & ICU Anchors (REAL / ESTIMATED):</strong> The statewide baseline anchors (144,983 hospital beds and 11,587 ICU beds) reflect official state health profiles and the State ICU Audit. District-level capacities are disaggregated estimates modeled proportionally to facility counts and population density.
-        </p>
       </div>
 
       {/* Real Boundary Leaflet Map */}

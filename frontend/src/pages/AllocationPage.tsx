@@ -6,7 +6,7 @@ import { ProvenanceBadge } from "../components/ProvenanceBadge";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import { ErrorAlert } from "../components/ErrorAlert";
 import { AllocationResponse } from "../types";
-import { GitBranch, CheckCircle2, ShieldAlert, Cpu, ArrowRight } from "lucide-react";
+import { GitBranch, CheckCircle2, ShieldAlert, ArrowRight } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -76,24 +76,6 @@ export const AllocationPage: React.FC = () => {
         <p className="text-sm text-slate-500 mt-1">
           Google OR-Tools SCIP Mixed-Integer Linear Programming (MIP) Solver with perishables distance constraints and local safety reserves.
         </p>
-      </div>
-
-      {/* Cost Index Explanatory Note */}
-      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
-        <Cpu className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" />
-        <div className="text-xs text-blue-900 space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold">Logistics Evaluation Score: Cost Index</span>
-            <ProvenanceBadge tag="ASSUMED" />
-          </div>
-          <p>
-            Transport cost is measured as an abstract logistics score:{" "}
-            <code className="bg-blue-100 px-1 py-0.5 rounded font-mono">
-              Cost Index = unit_km × 15.0 + active_routes × 500.0
-            </code>
-            . This is a mathematical optimization cost function, <strong>not commercial currency</strong>.
-          </p>
-        </div>
       </div>
 
       {/* Simulation Context Validation */}

@@ -1,10 +1,9 @@
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { ProvenanceBadge } from "../components/ProvenanceBadge";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import { ErrorAlert } from "../components/ErrorAlert";
-import { History, AlertCircle } from "lucide-react";
+import { History } from "lucide-react";
 import {
   ScatterChart,
   Scatter,
@@ -61,21 +60,6 @@ export const BacktestPage: React.FC = () => {
         <p className="text-sm text-slate-500 mt-1">
           Leave-One-Event-Out validation by DisNo. across benchmark Indian disasters.
         </p>
-      </div>
-
-      {/* Honest Scientific Disclaimer */}
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
-        <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
-        <div className="text-xs text-amber-900 space-y-1">
-          <p className="font-semibold">Backtest Evaluation & Scope Limitations</p>
-          <p>
-            {backtestData?.disclaimer ||
-              "Historical backtesting demonstrates that while event rankings correlate with observed casualties, very large events are underestimated by 30-150x."}
-          </p>
-          <p className="text-[11px] text-amber-700">
-            EM-DAT disaster event totals are national or multi-state; local district shares are <ProvenanceBadge tag="ASSUMED" /> population-proportional.
-          </p>
-        </div>
       </div>
 
       {/* Scatter Plot Log-Log */}
